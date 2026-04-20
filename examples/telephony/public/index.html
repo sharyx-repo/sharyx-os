@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sharyx Voice | Call Trigger</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --primary: #38bdf8;
+            --accent: #818cf8;
+            --text: #f1f5f9;
+            --muted: #94a3b8;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg);
+            background: radial-gradient(circle at top right, #1e293b, #0f172a);
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 450px;
+            padding: 2rem;
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 24px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            animation: fadeIn 0.8s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        h1 {
+            font-size: 2rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            text-align: center;
+            background: linear-gradient(to right, var(--primary), var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        p.subtitle {
+            text-align: center;
+            color: var(--muted);
+            font-size: 0.9rem;
+            margin-bottom: 2rem;
+        }
+
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        label {
+            display: block;
+            font-size: 0.85rem;
+            color: var(--muted);
+            margin-bottom: 0.5rem;
+            font-weight: 400;
+        }
+
+        input {
+            width: 100%;
+            padding: 1rem;
+            box-sizing: border-box;
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            color: white;
+            font-family: inherit;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.1);
+        }
+
+        .provider-selector {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+
+        .provider-option {
+            position: relative;
+            padding: 0.8rem;
+            text-align: center;
+            background: rgba(15, 23, 42, 0.5);
+            border: 2px solid transparent;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 400;
+            color: var(--muted);
+        }
+
+        .provider-option.active {
+            border-color: var(--primary);
+            color: white;
+            background: rgba(56, 189, 248, 0.05);
+        }
+
+        button {
+            width: 100%;
+            padding: 1rem;
+            margin-top: 1rem;
+            background: linear-gradient(to right, #0ea5e9, #6366f1);
+            border: none;
+            border-radius: 14px;
+            color: white;
+            font-family: inherit;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
+            filter: brightness(1.1);
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        #status {
+            margin-top: 1.5rem;
+            font-size: 0.85rem;
+            text-align: center;
+            min-height: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .success { color: #4ade80; }
+        .error { color: #f87171; }
+
+        .logo {
+            display: block;
+            margin: 0 auto 1.5rem;
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(to bottom right, var(--primary), var(--accent));
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 10px 20px rgba(56, 189, 248, 0.2);
+        }
+
+        .logo-inner {
+            width: 20px;
+            height: 20px;
+            border: 3px solid white;
+            border-radius: 50%;
+            position: relative;
+        }
+
+        .logo-inner::after {
+            content: '';
+            position: absolute;
+            top: 5px;
+            left: 5px;
+            width: 4px;
+            height: 4px;
+            background: white;
+            border-radius: 50%;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="logo">
+        <div class="logo-inner"></div>
+    </div>
+    <h1>Sharyx Voice</h1>
+    <p class="subtitle">Enter customer details to initiate an AI call</p>
+
+    <div class="form-group">
+        <label>CUSTOMER PHONE NUMBER</label>
+        <input type="text" id="phoneNumber" placeholder="+91 XXXXX XXXXX" value="">
+    </div>
+
+    <div class="form-group">
+        <label>TELEPHONY PROVIDER</label>
+        <div class="provider-selector">
+            <div class="provider-option active" onclick="selectProvider('plivo', this)">Plivo</div>
+            <div class="provider-option" onclick="selectProvider('twilio', this)">Twilio</div>
+        </div>
+    </div>
+
+    <button id="callBtn" onclick="triggerCall()">Trigger AI Call</button>
+
+    <div id="status"></div>
+</div>
+
+<script>
+    let selectedProvider = 'plivo';
+
+    function selectProvider(provider, element) {
+        selectedProvider = provider;
+        document.querySelectorAll('.provider-option').forEach(opt => opt.classList.remove('active'));
+        element.classList.add('active');
+    }
+
+    async function triggerCall() {
+        const phone = document.getElementById('phoneNumber').value.trim();
+        const status = document.getElementById('status');
+        const btn = document.getElementById('callBtn');
+
+        if (!phone) {
+            status.innerText = "Please enter a phone number";
+            status.className = "error";
+            return;
+        }
+
+        status.innerText = "Initiating call...";
+        status.className = "";
+        btn.disabled = true;
+
+        try {
+            const response = await fetch('/trigger-call', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ to: phone, provider: selectedProvider })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                status.innerText = `✅ Call triggered! (ID: ${data.callSid})`;
+                status.className = "success";
+            } else {
+                status.innerText = `❌ Error: ${data.error}`;
+                status.className = "error";
+            }
+        } catch (err) {
+            status.innerText = "❌ Network error. Check server console.";
+            status.className = "error";
+        } finally {
+            btn.disabled = false;
+        }
+    }
+</script>
+
+</body>
+</html>

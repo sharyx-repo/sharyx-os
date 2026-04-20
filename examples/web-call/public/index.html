@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sharyx Voice Web Demo 🎙️</title>
+    <style>
+        body { font-family: 'Inter', sans-serif; background: #0f172a; color: white; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        .card { background: #1e293b; padding: 2rem; border-radius: 1rem; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #334155; }
+        .btn { background: #3b82f6; color: white; border: none; padding: 1rem 2rem; border-radius: 9999px; font-size: 1.1rem; cursor: pointer; transition: 0.2s; }
+        .btn:hover { background: #2563eb; transform: scale(1.05); }
+        .btn.active { background: #ef4444; }
+        .status { margin-top: 1.5rem; color: #94a3b8; font-size: 0.9rem; }
+        .visualizer { display: flex; gap: 3px; justify-content: center; margin-top: 1.5rem; height: 30px; }
+        .bar { width: 4px; height: 100%; background: #3b82f6; border-radius: 2px; transition: height 0.1s; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Sharyx WebCall</h1>
+        <p>Talk to the AI Assistant in real-time.</p>
+        
+        <div class="visualizer" id="visualizer">
+            <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
+        </div>
+
+        <button class="btn" id="callBtn">📞 Click to Call</button>
+        <div class="status" id="status">Ready to connect...</div>
+    </div>
+
+    <script src="client.js"></script>
+</body>
+</html>

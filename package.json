@@ -1,0 +1,55 @@
+{
+  "name": "sharyx-os",
+  "version": "1.0.0",
+  "description": "Professional Open Source framework for building real-time AI voice agents.",
+  "author": "Gokul",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sharyx-voice-ai/sharyx-os.git"
+  },
+  "keywords": [
+    "voice-ai",
+    "ai-agent",
+    "stt",
+    "tts",
+    "llm",
+    "real-time",
+    "telephony",
+    "twilio",
+    "deepgram",
+    "openai"
+  ],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc -w",
+    "prepublishOnly": "npm run build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@deepgram/sdk": "^5.0.0",
+    "@hubspot/api-client": "^11.0.0",
+    "axios": "^1.15.0",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "google-auth-library": "^9.0.0",
+    "googleapis": "^126.0.0",
+    "ioredis": "^5.3.0",
+    "openai": "^4.104.0",
+    "ws": "^8.14.2"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.8.2",
+    "@types/ws": "^8.5.10",
+    "typescript": "^5.2.2",
+    "vitest": "^1.4.0"
+  }
+}
