@@ -3,7 +3,7 @@ import express from 'express';
 import path from 'path';
 import * as fs from 'fs';
 import { WebSocketServer } from 'ws';
-import { createAgent, TelephonyService, TelephonyControllers } from 'sharyx-voice-agent';
+import { createAgent, TelephonyService, TelephonyControllers } from 'sharyx-os';
 
 // File-based logging to capture everything
 const logFile = path.join(__dirname, 'server_debug.log');
@@ -80,8 +80,9 @@ app.post('/plivo/xml', (req, res) => {
 
 app.post('/twilio/twiml', (req, res) => {
   res.type('text/xml');
-  const host = req.headers['x-forwarded-host'] || req.headers.host;
-  let domain = process.env.NGROK_DOMAIN || host;
+  const hostValue = req.headers['x-forwarded-host'] || req.headers.host || 'localhost';
+  let domain = Array.isArray(hostValue) ? hostValue[0] : hostValue;
+  domain = process.env.NGROK_DOMAIN || domain;
   
   // Clean domain and ensure wss://
   domain = domain.replace(/^https?:\/\//, '');
@@ -110,7 +111,7 @@ const agent = createAgent({
 });
 
 // For WebSocket routing, we still need adapters for now or we can use the brain directly
-import { TwilioAdapter, PlivoAdapter } from 'sharyx-voice-agent';
+import { TwilioAdapter, PlivoAdapter } from 'sharyx-os';
 const twilio = new TwilioAdapter();
 const plivo = new PlivoAdapter();
 agent.use(twilio).use(plivo);

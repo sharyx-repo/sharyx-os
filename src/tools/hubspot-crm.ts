@@ -28,7 +28,8 @@ export const hubspotTools: SimpleTool[] = [
             email: email,
             phone: phone || '',
             company: company || ''
-          }
+          },
+          associations: []
         });
 
         return {

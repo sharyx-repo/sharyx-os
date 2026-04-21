@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
-import { createAgent, WebCallAdapter } from 'sharyx-voice-agent';
+import { createAgent, WebCallAdapter } from 'sharyx-os';
 import path from 'path';
 
 const app = express();
