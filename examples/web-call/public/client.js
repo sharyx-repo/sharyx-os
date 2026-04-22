@@ -5,10 +5,31 @@ let processor;
 let isCalling = false;
 let nextPlayTime = 0;
 let playingSources = [];
+let currentSessionId = '';
+let currentUserId = '';
+let sessionHistory = [];
+let sessionMetrics = {};
 
 const callBtn = document.getElementById('callBtn');
-const status = document.getElementById('status');
+const btnText = document.getElementById('btnText');
+const btnIcon = callBtn.querySelector('i');
+const statusText = document.getElementById('statusText');
+const statusDot = document.getElementById('statusDot');
 const bars = document.querySelectorAll('.bar');
+const chatInput = document.getElementById('chatInput');
+const sendBtn = document.getElementById('sendBtn');
+const displayUserId = document.getElementById('displayUserId');
+const displaySessionId = document.getElementById('displaySessionId');
+const statConnState = document.getElementById('statConnState');
+const statTrackState = document.getElementById('statTrackState');
+const statTrackId = document.getElementById('statTrackId');
+const statLatency = document.getElementById('statLatency');
+const statInterrupts = document.getElementById('statInterrupts');
+const statAiStatus = document.getElementById('statAiStatus');
+const statUserVad = document.getElementById('statUserVad');
+const statNetQuality = document.getElementById('statNetQuality');
+
+let vadTimeout = null;
 
 callBtn.onclick = async () => {
     if (isCalling) {
@@ -18,11 +39,40 @@ callBtn.onclick = async () => {
     startCall();
 };
 
+async function sendTextMessage() {
+    const text = chatInput.value.trim();
+    if (!text) return;
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        // 1. Add to UI
+        addMessageToTranscript('user', text, true);
+        
+        // 2. Send to backend
+        ws.send(JSON.stringify({ event: 'text', payload: text }));
+        
+        // 3. Clear input
+        chatInput.value = '';
+    }
+}
+
+sendBtn.onclick = () => sendTextMessage();
+chatInput.onkeydown = (e) => {
+    if (e.key === 'Enter') sendTextMessage();
+};
+
 async function startCall() {
     isCalling = true;
-    callBtn.innerText = '🛑 Stop Call';
+    btnText.innerText = 'Stop Call';
+    btnIcon.className = 'ph-bold ph-stop';
     callBtn.classList.add('active');
-    status.innerText = 'Connecting...';
+    voiceInterface.classList.add('is-active');
+    statusText.innerText = 'Connecting...';
+    statusDot.classList.add('active');
+    
+    // Enable Chat Input
+    chatInput.disabled = false;
+    sendBtn.disabled = false;
+    chatInput.focus();
 
     // 1. Initialize AudioContext early for AutoPlay policy and fast start
     try {
@@ -30,16 +80,16 @@ async function startCall() {
         if (audioContext.state === 'suspended') {
             await audioContext.resume();
         }
-    } catch(e) {
+    } catch (e) {
         console.error('Failed to initialize AudioContext:', e);
     }
 
     // 2. Setup WebSocket
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(`${protocol}//${window.location.host}`);
-    
+
     ws.onopen = () => {
-        status.innerText = '💻 Connected. Setting up microphone...';
+        statusText.innerText = 'Connected. Setting up mic...';
         setupMicrophone();
     };
 
@@ -47,6 +97,59 @@ async function startCall() {
         const data = JSON.parse(message.data);
         if (data.event === 'audio') {
             playAudio(data.payload);
+        } else if (data.event === 'session_info') {
+            currentSessionId = data.payload.sessionId;
+            currentUserId = data.payload.userId;
+            displayUserId.innerText = currentUserId;
+            displaySessionId.innerText = currentSessionId;
+            
+            // Sidebar Update
+            statTrackId.innerText = `TR_${currentSessionId.toUpperCase()}`;
+            statConnState.innerText = 'Connected';
+            statConnState.className = 'stat-value active';
+            statTrackState.innerText = 'Subscribed';
+            statTrackState.className = 'stat-value active';
+        } else if (data.event === 'metrics') {
+            sessionMetrics = data.payload;
+            if (statLatency) statLatency.innerText = `${data.payload.avgLatencyMs}ms`;
+            if (statInterrupts) statInterrupts.innerText = data.payload.interruptCount;
+            
+            // Calculate Network Health
+            if (statNetQuality) {
+                const latency = data.payload.avgLatencyMs;
+                if (latency < 1000) {
+                    statNetQuality.innerText = 'Excellent';
+                    statNetQuality.style.color = 'var(--health-high)';
+                } else if (latency < 2000) {
+                    statNetQuality.innerText = 'Good';
+                    statNetQuality.style.color = 'var(--health-mid)';
+                } else {
+                    statNetQuality.innerText = 'Poor';
+                    statNetQuality.style.color = 'var(--health-low)';
+                }
+            }
+            
+            updateLastSessionWithMetrics(data.payload);
+        } else if (data.event === 'status_update') {
+            const { status, type } = data.payload;
+            if (type === 'pipeline' && statAiStatus) {
+                statAiStatus.innerText = status;
+                statAiStatus.className = `stat-value ${status !== 'Idle' ? 'active' : ''}`;
+            } else if (type === 'vad' && statUserVad) {
+                statUserVad.innerText = status;
+                statUserVad.className = 'stat-value active';
+                
+                // Clear VAD after 2 seconds of silence
+                if (vadTimeout) clearTimeout(vadTimeout);
+                vadTimeout = setTimeout(() => {
+                    if (statUserVad) {
+                        statUserVad.innerText = 'Silent';
+                        statUserVad.className = 'stat-value';
+                    }
+                }, 2000);
+            }
+        } else if (data.event === 'transcript') {
+            addMessageToTranscript(data.payload.role, data.payload.text, data.payload.final, data.payload.latency);
         } else if (data.event === 'clear') {
             playingSources.forEach(s => s.stop());
             playingSources = [];
@@ -55,67 +158,79 @@ async function startCall() {
     };
 
     ws.onerror = (err) => {
-        status.innerText = '❌ Connection Error.';
+        statusText.innerText = 'Connection Error.';
+        statusDot.classList.remove('active');
         console.error('WS Error:', err);
     };
 }
 
 async function setupMicrophone() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        status.innerText = '❌ Browser does not support microphone access.';
+        statusText.innerText = 'Mic access not supported.';
         return;
     }
 
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
+        const stream = await navigator.mediaDevices.getUserMedia({
             audio: {
                 echoCancellation: true,
                 noiseSuppression: true,
                 autoGainControl: true
-            } 
+            }
         });
-        status.innerText = '💻 Connected. Speak now!';
-        
+        statusText.innerText = 'Listening...';
+
         if (!audioContext) {
             audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
         }
-        
+
         const source = audioContext.createMediaStreamSource(stream);
-        
+
         // Use a buffer size that's a power of 2
         processor = audioContext.createScriptProcessor(4096, 1, 1);
         source.connect(processor);
         processor.connect(audioContext.destination);
 
-    processor.onaudioprocess = (e) => {
-        const inputData = e.inputBuffer.getChannelData(0);
-        const volume = Math.max(...inputData);
-        bars.forEach(bar => bar.style.height = `${Math.random() * volume * 200 + 5}px`);
+        processor.onaudioprocess = (e) => {
+            const inputData = e.inputBuffer.getChannelData(0);
+            const volume = Math.max(...inputData);
 
-        // Convert to Int16
-        const pcmData = new Int16Array(inputData.length);
-        for (let i = 0; i < inputData.length; i++) {
-            pcmData[i] = Math.max(-1, Math.min(1, inputData[i])) * 0x7FFF;
-        }
-        
-        // Safer base64 conversion
-        const bytes = new Uint8Array(pcmData.buffer);
-        let binary = '';
-        for (let i = 0; i < bytes.byteLength; i++) {
-            binary += String.fromCharCode(bytes[i]);
-        }
-        const base64 = btoa(binary);
+            // Update visualizer bars
+            bars.forEach((bar, index) => {
+                const scale = volume * 150;
+                const randomExtra = Math.random() * 5;
+                const height = Math.max(8, scale + randomExtra + (index % 3) * 5);
+                bar.style.height = `${height}px`;
 
-        if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ event: 'audio', payload: base64 }));
-        }
-    };
+                // Add slight brightness variation
+                bar.style.opacity = 0.5 + (volume * 2);
+            });
+
+            // Convert to Int16
+            const pcmData = new Int16Array(inputData.length);
+            for (let i = 0; i < inputData.length; i++) {
+                pcmData[i] = Math.max(-1, Math.min(1, inputData[i])) * 0x7FFF;
+            }
+
+            // Safer base64 conversion
+            const bytes = new Uint8Array(pcmData.buffer);
+            let binary = '';
+            for (let i = 0; i < bytes.byteLength; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            const base64 = btoa(binary);
+
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ event: 'audio', payload: base64 }));
+            }
+        };
     } catch (err) {
         console.error('Microphone access denied:', err);
+        statusDot.classList.remove('active');
         if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-            status.innerText = '❌ Microphone permission denied. Please allow access in browser settings.';
+            statusText.innerText = 'Mic permission denied.';
         } else {
-            status.innerText = `❌ Error: ${err.message}`;
+            statusText.innerText = `Error: ${err.message}`;
         }
         stopCall();
     }
@@ -128,22 +243,22 @@ function playAudio(base64) {
     const len = binary.length;
     const bytes = new Uint8Array(len);
     for (let i = 0; i < len; i++) { bytes[i] = binary.charCodeAt(i); }
-    
+
     // Decode Int16 PCM to Float32
     const int16Array = new Int16Array(bytes.buffer);
     const float32Array = new Float32Array(int16Array.length);
-    for(let i = 0; i < int16Array.length; i++) {
+    for (let i = 0; i < int16Array.length; i++) {
         float32Array[i] = int16Array[i] / 32768.0;
     }
-    
+
     // Create AudioBuffer (16kHz, 1 channel)
     const audioBuffer = audioContext.createBuffer(1, float32Array.length, 16000);
     audioBuffer.copyToChannel(float32Array, 0);
-    
+
     const source = audioContext.createBufferSource();
     source.buffer = audioBuffer;
     source.connect(audioContext.destination);
-    
+
     // Smooth scheduling
     const playTime = Math.max(audioContext.currentTime, nextPlayTime);
     source.start(playTime);
@@ -157,17 +272,195 @@ function playAudio(base64) {
 
 function stopCall() {
     isCalling = false;
-    callBtn.innerText = '📞 Click to Call';
+    btnText.innerText = 'Start Call';
+    btnIcon.className = 'ph-bold ph-phone';
     callBtn.classList.remove('active');
-    if (status.innerText.startsWith('💻')) {
-        status.innerText = 'Call ended.';
+    voiceInterface.classList.remove('is-active');
+    statusDot.classList.remove('active');
+
+    if (statusText.innerText !== 'Mic permission denied.' && !statusText.innerText.startsWith('Error')) {
+        statusText.innerText = 'Call ended.';
     }
     if (ws) {
         ws.close();
         ws = null;
     }
+
+    // Capture technical snapshot BEFORE resetting UI
+    const technicalSpecs = getTechnicalSnapshot();
+
+    // --- SAVE TO LOCAL STORAGE ---
+    if (currentSessionId && sessionHistory.length > 0) {
+        const history = JSON.parse(localStorage.getItem('sharyx_history') || '[]');
+        history.push({
+            sessionId: currentSessionId,
+            userId: currentUserId,
+            transcript: sessionHistory,
+            metrics: sessionMetrics,
+            technicalSpecs: technicalSpecs,
+            timestamp: new Date().toISOString()
+        });
+        localStorage.setItem('sharyx_history', JSON.stringify(history));
+        console.log('📦 Session saved to browser memory:', currentSessionId);
+    }
+
+function getTechnicalSnapshot() {
+    return {
+        quality: statNetQuality?.innerText || 'N/A',
+        aiStatus: statAiStatus?.innerText || 'Idle',
+        userVad: statUserVad?.innerText || 'Silent',
+        connection: statConnState?.innerText || 'Disconnected',
+        trackState: statTrackState?.innerText || 'Unsubscribed',
+        trackId: statTrackId?.innerText || 'N/A',
+        latency: statLatency?.innerText || '0ms',
+        interruptions: statInterrupts?.innerText || '0',
+        userId: displayUserId?.innerText || '...',
+        sessionId: displaySessionId?.innerText || '...',
+        // Hardcoded specs from UI
+        codec: 'Opus (48kHz)',
+        encryption: 'DTLS-SRTP',
+        protocol: 'Secure WS',
+        bitrate: '48 kbps'
+    };
+}
+    // ----------------------------
+
     if (audioContext) {
         audioContext.close();
         audioContext = null;
     }
+
+    // Disable Chat Input
+    chatInput.disabled = true;
+    sendBtn.disabled = true;
+    chatInput.value = '';
+
+    // Sidebar Reset
+    statConnState.innerText = 'Disconnected';
+    statConnState.className = 'stat-value';
+    statTrackState.innerText = 'Unsubscribed';
+    statTrackState.className = 'stat-value';
 }
+
+function updateLastSessionWithMetrics(metrics) {
+    const history = JSON.parse(localStorage.getItem('sharyx_history') || '[]');
+    if (history.length > 0) {
+        const lastSession = history[history.length - 1];
+        if (lastSession.sessionId === currentSessionId) {
+            lastSession.metrics = metrics;
+            localStorage.setItem('sharyx_history', JSON.stringify(history));
+            console.log('📊 Metrics updated for session:', currentSessionId);
+        }
+    }
+}
+
+let lastMessageElement = null;
+let lastRole = null;
+
+function addMessageToTranscript(role, text, final = true, latency = null) {
+    if (!text) return;
+
+    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const isAgent = role === 'agent';
+    
+    // If it's the same role and the last message wasn't finished, update its target
+    if (lastMessageElement && lastRole === role && !lastMessageElement.dataset.final) {
+        const content = lastMessageElement.querySelector('.message-content');
+        content.dataset.targetText = text;
+        
+        if (final) {
+            lastMessageElement.dataset.final = "true";
+            if (isAgent && latency) {
+                const top = lastMessageElement.querySelector('.message-top');
+                if (!top.querySelector('.latency-badge')) {
+                    top.insertAdjacentHTML('beforeend', `<span class="latency-badge">latency: ${latency}ms</span>`);
+                }
+            }
+        }
+        return;
+    }
+
+    const msgDiv = document.createElement('div');
+    msgDiv.className = `message ${isAgent ? 'agent' : 'user'}`;
+    if (final) msgDiv.dataset.final = "true";
+    
+    const latencyHtml = (isAgent && latency) ? `<span class="latency-badge">latency: ${latency}ms</span>` : '';
+
+    msgDiv.innerHTML = `
+        <div class="avatar">${isAgent ? 'A' : 'U'}</div>
+        <div class="message-body">
+            <div class="message-top">
+                <span class="sender-name">${isAgent ? 'Assistant' : 'User'}</span>
+                <span class="timestamp">${time}</span>
+                ${latencyHtml}
+            </div>
+            <div class="message-content typing" data-target-text="${text}"></div>
+        </div>
+    `;
+
+    transcriptContainer.appendChild(msgDiv);
+    lastMessageElement = msgDiv;
+    lastRole = role;
+
+    sessionHistory.push({ role, text, timestamp: new Date().toISOString() });
+    transcriptContainer.scrollTop = transcriptContainer.scrollHeight;
+}
+
+// --- TYPEWRITER ANIMATION CORE ---
+function animateTypewriter() {
+    const typingElements = document.querySelectorAll('.message-content.typing');
+    
+    typingElements.forEach(el => {
+        const targetText = el.dataset.targetText || '';
+        const currentText = el.innerText;
+        
+        if (currentText.length < targetText.length) {
+            // Add next character
+            el.innerText = targetText.slice(0, currentText.length + 1);
+            transcriptContainer.scrollTop = transcriptContainer.scrollHeight;
+        } else {
+            // Check if we should remove the typing cursor
+            const parentMsg = el.closest('.message');
+            if (parentMsg && parentMsg.dataset.final === "true") {
+                el.classList.remove('typing');
+            }
+        }
+    });
+    
+    requestAnimationFrame(animateTypewriter);
+}
+
+// Start the animation loop
+animateTypewriter();
+
+// --- INITIALIZE COLLAPSIBLE SECTIONS ---
+document.querySelectorAll('.stats-section h3').forEach(header => {
+    header.addEventListener('click', () => {
+        const section = header.parentElement;
+        section.classList.toggle('collapsed');
+    });
+});
+
+// --- DRAWER TOGGLE LOGIC ---
+const statsDrawer = document.getElementById('statsDrawer');
+const drawerToggle = document.getElementById('drawerToggle');
+const drawerClose = document.getElementById('drawerClose');
+const drawerOverlay = document.getElementById('drawerOverlay');
+
+function openDrawer() {
+    statsDrawer.classList.add('open');
+    drawerOverlay.classList.add('active');
+    drawerToggle.style.opacity = '0';
+    drawerToggle.style.visibility = 'hidden';
+}
+
+function closeDrawer() {
+    statsDrawer.classList.remove('open');
+    drawerOverlay.classList.remove('active');
+    drawerToggle.style.opacity = '1';
+    drawerToggle.style.visibility = 'visible';
+}
+
+drawerToggle.onclick = openDrawer;
+drawerClose.onclick = closeDrawer;
+drawerOverlay.onclick = closeDrawer;

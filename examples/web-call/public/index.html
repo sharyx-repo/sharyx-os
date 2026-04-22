@@ -1,33 +1,877 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sharyx Voice Web Demo 🎙️</title>
+    <title>Sharyx</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=JetBrains+Mono&display=swap"
+        rel="stylesheet">
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <style>
-        body { font-family: 'Inter', sans-serif; background: #0f172a; color: white; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-        .card { background: #1e293b; padding: 2rem; border-radius: 1rem; text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid #334155; }
-        .btn { background: #3b82f6; color: white; border: none; padding: 1rem 2rem; border-radius: 9999px; font-size: 1.1rem; cursor: pointer; transition: 0.2s; }
-        .btn:hover { background: #2563eb; transform: scale(1.05); }
-        .btn.active { background: #ef4444; }
-        .status { margin-top: 1.5rem; color: #94a3b8; font-size: 0.9rem; }
-        .visualizer { display: flex; gap: 3px; justify-content: center; margin-top: 1.5rem; height: 30px; }
-        .bar { width: 4px; height: 100%; background: #3b82f6; border-radius: 2px; transition: height 0.1s; }
+        :root {
+            --primary: #a859e7;
+            --primary-glow: rgba(168, 89, 231, 0.4);
+            --accent: #8b5cf6;
+            --danger: #ef4444;
+            --bg-left: #FFFDF8;
+            --bg-right: #1a1a2e;
+            --text-dark: #1f2937;
+            --text-light: #f8fafc;
+            --text-dim: #94a3b8;
+            --border: rgba(0, 0, 0, 0.05);
+            --health-low: #ef4444;
+            --health-mid: #f59e0b;
+            --health-high: #10b981;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            height: 100vh;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* Layout */
+        .transcript-pane {
+            flex: 1.2;
+            background: var(--bg-left);
+            color: var(--text-dark);
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--border);
+            padding: 2.5rem;
+            position: relative;
+        }
+
+        .session-info {
+            margin-bottom: 2rem;
+            padding: 0.75rem 1rem;
+            background: rgba(0, 0, 0, 0.03);
+            border-radius: 0.75rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .info-label {
+            color: var(--text-dark);
+            font-weight: 600;
+            margin-right: 0.5rem;
+        }
+
+        .voice-pane {
+            flex: 1.2;
+            background: var(--bg-right);
+            color: var(--text-light);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            padding: 2rem;
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .stats-pane {
+            position: fixed;
+            right: 0;
+            top: 0;
+            width: 380px;
+            height: 100vh;
+            background: #FFFDF8;
+            color: #1e293b;
+            display: flex;
+            flex-direction: column;
+            padding: 1.5rem;
+            overflow-y: auto;
+            gap: 1.5rem;
+            box-shadow: -15px 0 40px rgba(0, 0, 0, 0.15);
+            z-index: 2000;
+            transform: translateX(110%);
+            transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .stats-pane.open {
+            transform: translateX(0);
+        }
+
+        .drawer-close {
+            position: absolute;
+            top: 1.5rem;
+            right: 1.5rem;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.05);
+            border: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            color: #1e293b;
+            z-index: 2001;
+        }
+
+        .drawer-close:hover {
+            background: rgba(0, 0, 0, 0.1);
+            transform: rotate(90deg);
+        }
+
+        .drawer-toggle {
+            position: fixed;
+            top: 1.5rem;
+            right: 1.5rem;
+            width: 48px;
+            height: 48px;
+            background: white;
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 1500;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+            color: var(--primary);
+        }
+
+        .drawer-toggle:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+        }
+
+        .drawer-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(15, 23, 42, 0.4);
+            backdrop-filter: blur(4px);
+            z-index: 1900;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.4s ease;
+        }
+
+        .drawer-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .stats-header {
+            color: #1e293b;
+            font-size: 0.85rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .stats-section {
+            background: white;
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            border-radius: 1rem;
+            padding: 1.25rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        }
+
+        .stats-section h3 {
+            color: #1e293b;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+            opacity: 0.8;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+            padding-bottom: 0.5rem;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.2s ease;
+        }
+
+        .stats-section h3:hover {
+            opacity: 1;
+            color: var(--primary);
+        }
+
+        .stats-section .caret {
+            font-size: 0.8rem;
+            transition: transform 0.3s ease;
+        }
+
+        .stats-section.collapsed h3 {
+            border-bottom-color: transparent;
+        }
+
+        .stats-section.collapsed .caret {
+            transform: rotate(-90deg);
+        }
+
+        .stats-section.collapsed .stats-content {
+            display: none;
+        }
+
+        .stats-content {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            animation: slideDown 0.3s ease-out;
+        }
+
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-5px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.85rem;
+        }
+
+        .stat-label {
+            color: #64748b;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.8rem;
+        }
+
+        .stat-label i {
+            font-size: 1rem;
+            opacity: 0.8;
+            color: var(--primary);
+        }
+
+        .stat-value {
+            color: #1e293b;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            text-align: right;
+            word-break: break-all;
+            max-width: 140px;
+        }
+
+        .stat-value.active {
+            color: #10b981;
+            background: rgba(16, 185, 129, 0.1);
+            padding: 0.15rem 0.5rem;
+            border-radius: 6px;
+            font-weight: 600;
+        }
+
+        .stat-value.highlight {
+            color: var(--primary);
+            background: rgba(168, 89, 231, 0.1);
+            padding: 0.15rem 0.5rem;
+            border-radius: 6px;
+            font-weight: 600;
+        }
+
+        .health-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #10b981;
+            display: inline-block;
+            margin-right: 6px;
+            box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+            animation: pulse-health 2s infinite ease-in-out;
+        }
+
+        @keyframes pulse-health {
+
+            0%,
+            100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+
+            50% {
+                opacity: 0.5;
+                transform: scale(1.2);
+            }
+        }
+
+        /* Transcript Styles */
+        .transcript-header {
+            margin-bottom: 3rem;
+            display: none;
+            /* Full minimalist look */
+        }
+
+        .transcript-container {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+            padding-right: 1rem;
+        }
+
+        .transcript-container::-webkit-scrollbar {
+            width: 5px;
+        }
+
+        .transcript-container::-webkit-scrollbar-thumb {
+            background: #e5e7eb;
+            border-radius: 99px;
+        }
+
+        .message {
+            display: flex;
+            gap: 1rem;
+            max-width: 100%;
+            animation: fadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .avatar {
+            width: 40px;
+            height: 40px;
+            min-width: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.9rem;
+            color: #d81b60;
+            background: #fdf2f8;
+        }
+
+        .message.agent .avatar {
+            background: #fdf2f8;
+            color: #db2777;
+        }
+
+        .message.user .avatar {
+            background: #f0fdf4;
+            color: #16a34a;
+        }
+
+        .message-body {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .message-top {
+            display: flex;
+            align-items: baseline;
+            gap: 0.5rem;
+        }
+
+        .sender-name {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--text-dark);
+        }
+
+        .timestamp {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            font-weight: 400;
+        }
+
+        .latency-badge {
+            font-size: 0.65rem;
+            background: rgba(168, 89, 231, 0.1);
+            color: var(--primary);
+            padding: 0.1rem 0.4rem;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 600;
+        }
+
+        .message-content {
+            font-size: 1rem;
+            color: #374151;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            position: relative;
+        }
+
+        .message-content.typing::after {
+            content: '▊';
+            display: inline-block;
+            margin-left: 2px;
+            color: var(--primary);
+            animation: blink 0.8s infinite;
+            font-size: 1.1rem;
+            vertical-align: middle;
+        }
+
+        @keyframes blink {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0;
+            }
+        }
+
+        .chat-input-container {
+            margin-top: auto;
+            padding-top: 1.5rem;
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 0.75rem;
+            background: var(--bg-left);
+        }
+
+        .chat-input-wrapper {
+            flex: 1;
+            position: relative;
+        }
+
+        .chat-input {
+            width: 100%;
+            padding: 0.8rem 1.25rem;
+            background: #f3f4f6;
+            border: 1px solid transparent;
+            border-radius: 99px;
+            font-family: inherit;
+            font-size: 0.95rem;
+            color: var(--text-dark);
+            outline: none;
+            transition: all 0.2s ease;
+        }
+
+        .chat-input:focus {
+            background: white;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 4px var(--primary-glow);
+        }
+
+        .btn-send {
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            border: none;
+            background: var(--primary);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: transform 0.2s ease, filter 0.2s ease;
+        }
+
+        .btn-send:hover {
+            transform: scale(1.05);
+            filter: brightness(1.1);
+        }
+
+        .btn-send:active {
+            transform: scale(0.95);
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Voice Interface Styles */
+        .header h1 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            letter-spacing: -0.025em;
+            margin-bottom: 0.5rem;
+            color: white;
+        }
+
+        .header p {
+            color: var(--text-dim);
+            font-size: 1rem;
+            font-weight: 300;
+            margin-bottom: 3rem;
+            text-align: center;
+        }
+
+        .voice-interface {
+            position: relative;
+            width: 200px;
+            height: 200px;
+            margin-bottom: 3rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .orb-glow {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background: var(--primary);
+            filter: blur(50px);
+            opacity: 0.1;
+            border-radius: 50%;
+            transition: all 0.5s ease;
+        }
+
+        .visualizer {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            height: 80px;
+            z-index: 2;
+        }
+
+        .bar {
+            width: 8px;
+            height: 16px;
+            background: var(--primary);
+            border-radius: 99px;
+            transition: height 0.1s ease, background 0.3s ease;
+            box-shadow: 0 4px 12px var(--primary-glow);
+        }
+
+        .is-active .orb-glow {
+            opacity: 0.25;
+            animation: pulse-glow 2s infinite ease-in-out;
+        }
+
+        @keyframes pulse-glow {
+
+            0%,
+            100% {
+                transform: scale(1);
+                opacity: 0.15;
+            }
+
+            50% {
+                transform: scale(1.3);
+                opacity: 0.25;
+            }
+        }
+
+        /* Action Button */
+        .controls {
+            width: 100%;
+            max-width: 320px;
+        }
+
+        .btn-call {
+            width: 100%;
+            padding: 1.25rem;
+            border: none;
+            border-radius: 1.5rem;
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            background: var(--primary);
+            color: white;
+            box-shadow: 0 10px 25px -5px var(--primary-glow);
+        }
+
+        .btn-call:hover {
+            transform: translateY(-2px);
+            filter: brightness(1.1);
+        }
+
+        .btn-call.active {
+            background: var(--danger);
+            box-shadow: 0 10px 25px -5px rgba(239, 68, 68, 0.3);
+        }
+
+        .status-container {
+            margin-top: 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.6rem;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #cbd5e1;
+        }
+
+        .status-dot.active {
+            background: #10b981;
+            box-shadow: 0 0 12px rgba(16, 185, 129, 0.4);
+            animation: blink 1.5s infinite;
+        }
+
+        .status-text {
+            color: var(--text-dim);
+            font-size: 0.9rem;
+        }
+
+        @keyframes blink {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        /* Responsive */
+        @media (max-width: 800px) {
+            body {
+                flex-direction: column-reverse;
+            }
+
+            .transcript-pane {
+                display: none;
+            }
+
+            /* Hide transcript on mobile for simplicity */
+        }
     </style>
 </head>
+
 <body>
-    <div class="card">
-        <h1>Sharyx WebCall</h1>
-        <p>Talk to the AI Assistant in real-time.</p>
-        
-        <div class="visualizer" id="visualizer">
-            <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
+    <div class="transcript-pane">
+        <div class="transcript-header">
+            <i class="ph-bold ph-chats-circle"></i>
+            <h2>Live Transcription</h2>
+        </div>
+        <div class="transcript-container" id="transcriptContainer">
+            <!-- Messages will appear here -->
+            <div class="message agent">
+                <div class="avatar">A</div>
+                <div class="message-body">
+                    <div class="message-top">
+                        <span class="sender-name">Assistant</span>
+                        <span class="timestamp">Ready</span>
+                    </div>
+                    <div class="message-content">Ready to start the conversation. Click "Start Call" or type a message
+                        below.</div>
+                </div>
+            </div>
         </div>
 
-        <button class="btn" id="callBtn">📞 Click to Call</button>
-        <div class="status" id="status">Ready to connect...</div>
+        <div class="chat-input-container">
+            <div class="chat-input-wrapper">
+                <input type="text" class="chat-input" id="chatInput" placeholder="Type a message..." disabled>
+            </div>
+            <button class="btn-send" id="sendBtn" disabled>
+                <i class="ph-bold ph-paper-plane-right"></i>
+            </button>
+        </div>
+    </div>
+
+    <div class="voice-pane">
+        <div class="header">
+            <h1>Sharyx WebCall</h1>
+            <p>Your real-time AI companion</p>
+        </div>
+
+        <div class="voice-interface" id="voiceInterface">
+            <div class="orb-glow"></div>
+            <div class="visualizer" id="visualizer">
+                <div class="bar"></div>
+                <div class="bar"></div>
+                <div class="bar"></div>
+                <div class="bar"></div>
+                <div class="bar"></div>
+                <div class="bar"></div>
+                <div class="bar"></div>
+                <div class="bar"></div>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button class="btn-call" id="callBtn">
+                <i class="ph-bold ph-phone"></i>
+                <span id="btnText">Start Call</span>
+            </button>
+
+            <div class="status-container">
+                <div class="status-dot" id="statusDot"></div>
+                <div class="status-text" id="statusText">Ready to connect...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Technical Stats Sidebar -->
+    <div class="drawer-overlay" id="drawerOverlay"></div>
+    <button class="drawer-toggle" id="drawerToggle" title="Technical Specs">
+        <i class="ph-bold ph-activity"></i>
+    </button>
+
+    <div class="stats-pane" id="statsDrawer">
+        <button class="drawer-close" id="drawerClose">
+            <i class="ph-bold ph-x"></i>
+        </button>
+        <div class="stats-header">
+            <i class="ph-bold ph-activity"></i>
+            <span>Technical Specs</span>
+        </div>
+
+        <div class="stats-section">
+            <h3>
+                <span><i class="ph-bold ph-cpu"></i> Pipeline Status</span>
+                <i class="ph ph-caret-down caret"></i>
+            </h3>
+            <div class="stats-content">
+                <div class="stat-row">
+                    <span class="stat-label"><i class="ph-bold ph-brain"></i> AI Status</span>
+                    <span class="stat-value active" id="statAiStatus">Idle</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label"><i class="ph-bold ph-microphone"></i> User VAD</span>
+                    <span class="stat-value" id="statUserVad">Silent</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="stats-section">
+            <h3>
+                <span><i class="ph-bold ph-wifi-high"></i> Network Health</span>
+                <i class="ph ph-caret-down caret"></i>
+            </h3>
+            <div class="stats-content">
+                <div class="stat-row">
+                    <span class="stat-label"><i class="ph-bold ph-pulse"></i> Quality</span>
+                    <span class="stat-value active" id="statNetQuality">Excellent</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label"><i class="ph-bold ph-plug"></i> WebSocket</span>
+                    <span class="stat-value active">Connected</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="stats-section collapsed">
+            <h3>
+                <span><i class="ph-bold ph-identification-card"></i> Identity & Access</span>
+                <i class="ph ph-caret-down caret"></i>
+            </h3>
+            <div class="stats-content">
+                <div class="stat-row">
+                    <span class="stat-label"><i class="ph-bold ph-user"></i> User ID</span>
+                    <span class="stat-value" id="displayUserId">...</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label"><i class="ph-bold ph-fingerprint"></i> Session SID</span>
+                    <span class="stat-value" id="displaySessionId">...</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label"><i class="ph-bold ph-robot"></i> Participant</span>
+                    <span class="stat-value">AI Agent</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label"><i class="ph-bold ph-shield-check"></i> JWT Token</span>
+                    <span class="stat-value">Active</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label"><i class="ph-bold ph-link"></i> Connection</span>
+                    <span class="stat-value active" id="statConnState">Joined</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="stats-section collapsed">
+            <h3>
+                <span><i class="ph-bold ph-broadcast"></i> Media Pipeline</span>
+                <i class="ph ph-caret-down caret"></i>
+            </h3>
+            <div class="stats-content">
+                <div class="stat-row">
+                    <span class="stat-label"><i class="ph-bold ph-file-code"></i> Audio Codec</span>
+                    <span class="stat-value">Opus (48k)</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label"><i class="ph-bold ph-lock-key"></i> Encryption</span>
+                    <span class="stat-value">SRTP-AES</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label"><i class="ph-bold ph-radio"></i> Track State</span>
+                    <span class="stat-value active" id="statTrackState">Subscribed</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="stats-section collapsed">
+            <h3>
+                <span><i class="ph-bold ph-monitor"></i> Diagnostics</span>
+                <i class="ph ph-caret-down caret"></i>
+            </h3>
+            <div class="stats-content">
+                <div class="stat-row">
+                    <span class="stat-label"><i class="ph-bold ph-hashtag"></i> Track ID</span>
+                    <span class="stat-value highlight" id="statTrackId">TR_AUTO_01</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label"><i class="ph-bold ph-globe"></i> Protocol</span>
+                    <span class="stat-value">Secure WS</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label"><i class="ph-bold ph-timer"></i> Latency</span>
+                    <span class="stat-value active" id="statLatency">0ms</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label"><i class="ph-bold ph-warning-circle"></i> Interrupted</span>
+                    <span class="stat-value highlight" id="statInterrupts">0</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label"><i class="ph-bold ph-chart-line-up"></i> Bitrate</span>
+                    <span class="stat-value">48 kbps</span>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="client.js"></script>
 </body>
+
 </html>

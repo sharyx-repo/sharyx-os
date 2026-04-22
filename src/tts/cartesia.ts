@@ -98,42 +98,51 @@ export class CartesiaTTS implements TtsProvider {
     const voiceId = options?.voiceId || this.config.voiceId || '694f9389-aac1-45b6-b726-9d9369183238';
     const sampleRate = options?.sampleRate || 16000;
     
-    const response = await fetch('https://api.cartesia.ai/tts/bytes', {
-        method: 'POST',
-        headers: {
-            'X-API-Key': this.config.apiKey,
-            'Cartesia-Version': '2024-06-10',
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            model_id: options?.model || 'sonic-english',
-            transcript: text,
-            voice: {
-                mode: 'id',
-                id: voiceId
-            },
-            output_format: {
-                container: 'raw',
-                encoding: 'pcm_s16le',
-                sample_rate: sampleRate
-            }
-        })
-    });
-
-    if (!response.ok || !response.body) {
-        const errorBody = await response.text();
-        throw new Error(`Cartesia HTTP error: ${response.status} - ${errorBody}`);
-    }
-
-    const reader = response.body.getReader();
     try {
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            if (value) yield Buffer.from(value);
+        const response = await fetch('https://api.cartesia.ai/tts/bytes', {
+            method: 'POST',
+            headers: {
+                'X-API-Key': this.config.apiKey,
+                'Cartesia-Version': '2024-06-10',
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                model_id: options?.model || 'sonic-english',
+                transcript: text,
+                voice: {
+                    mode: 'id',
+                    id: voiceId
+                },
+                output_format: {
+                    container: 'raw',
+                    encoding: 'pcm_s16le',
+                    sample_rate: sampleRate
+                }
+            })
+        });
+
+        if (!response.ok || !response.body) {
+            const errorBody = await response.text();
+            throw new Error(`Cartesia HTTP error: ${response.status} - ${errorBody}`);
         }
-    } finally {
-        reader.releaseLock();
+
+        const reader = response.body.getReader();
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                if (value) yield Buffer.from(value);
+            }
+        } finally {
+            reader.releaseLock();
+        }
+    } catch (err: any) {
+        if (err.name === 'AbortError') {
+            console.log('[CartesiaTTS] Stream aborted');
+        } else {
+            console.error('[CartesiaTTS] ❌ Stream Error:', err.message);
+            throw err; // Re-throw to be caught by Orchestrator
+        }
     }
   }
 }

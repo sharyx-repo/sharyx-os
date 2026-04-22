@@ -47,6 +47,8 @@ export class WebCallAdapter implements TelephonyAdapter {
         const data = JSON.parse(message);
         if (data.event === 'audio') {
           transport.emit('audio', { payload: data.payload });
+        } else if (data.event === 'text') {
+          transport.emit('text', { text: data.payload });
         }
       } catch (err) {
         console.error('[WebCallAdapter] Error parsing message:', err);

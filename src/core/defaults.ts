@@ -3,9 +3,9 @@ import { SessionConfig } from './types';
 export const DEFAULT_CONFIG: Required<SessionConfig> = {
   // Interruption
   interruption_mode: 'interrupt',     // 'interrupt' | 'ignore' | 'append'
-  interruption_threshold: 1,          // Words before barge-in
+  interruption_threshold: 3,          // Increased to 3 words for production stability
   interruption_min_duration: 200,     // ms of speech before interrupt allowed
-  interruption_cooldown: 500,         // ms after AI speech starts before interrupt
+  interruption_cooldown: 1200,        // Increased to 1200ms to better suppress initial echo
 
   // Silence
   silence_notify_ms: 10000,           // 10s before "are you there?"

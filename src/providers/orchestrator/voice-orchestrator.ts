@@ -22,11 +22,13 @@ export class VoiceOrchestrator extends BaseOrchestrator {
             liveTts: null,
             activeTtsContextId: '',
             firstAudioTime: 0,
-            firstTokenTime: 0, 
+            firstTokenTime: 0,
             turnStartTime: 0,
             sessionStartTime: performance.now(),
-            aiSpeechStartTime: 0, 
-            completionResolvers: new Map<string, () => void>()
+            aiSpeechStartTime: 0,
+            completionResolvers: new Map<string, () => void>(),
+            latencies: [] as number[],
+            totalBargeIns: 0
         };
 
         // Pre-initialize Live TTS connection for the entire session (WebSocket)
@@ -37,11 +39,11 @@ export class VoiceOrchestrator extends BaseOrchestrator {
                     encoding: session.metadata?.encoding
                 });
                 session.liveTts.onError((err: any) => console.error('[VoiceOrchestrator] Session TTS Error:', err));
-                
+
                 // CENTRALIZED AUDIO ROUTER: Listen once for the entire session 
                 session.liveTts.onAudio((chunk: Buffer, ttsContextId?: string) => {
                     const isCorrectContext = ttsContextId ? session.activeTtsContextId === ttsContextId : true;
-                    
+
                     if (isCorrectContext && session.isAiSpeaking) {
                         if (session.firstAudioTime === 0) {
                             session.firstAudioTime = performance.now();
@@ -84,7 +86,7 @@ export class VoiceOrchestrator extends BaseOrchestrator {
         });
 
         // State for Multi-Barge-in tracking
-        session.bargeInCount = 0;
+        session.totalBargeIns = 0;
 
         const handleInterruption = (source: string, transcript?: string) => {
             if (session.isAiSpeaking && session.config.interruption_mode === 'interrupt') {
@@ -97,20 +99,26 @@ export class VoiceOrchestrator extends BaseOrchestrator {
                     return;
                 }
 
-                session.bargeInCount++;
-                console.log(`[Sharyx] 🚫 Barge-in #${session.bargeInCount} detected (${source})! Interrupting Turn ${session.currentTurnId}${transcript ? ` - "${transcript}"` : ''}`);
-                
+                session.totalBargeIns++;
+                console.log(`[Sharyx] 🚫 Barge-in #${session.totalBargeIns} detected (${source})! Interrupting Turn ${session.currentTurnId}${transcript ? ` - "${transcript}"` : ''}`);
+
                 // Atomic Stop Sequence
                 transport.sendClear();
                 session.isAiSpeaking = false;
-                session.processingTurn = false; 
+                session.processingTurn = false;
                 session.aiSpeechStartTime = 0; // Reset
+
+                // Update UI metrics immediately
+                this.sendMetrics(session, transport);
             }
         };
 
-        // INSTANT VAD INTERRUPTION: Listen for SpeechStarted event
-        sttStream.addListener(LiveTranscriptionEvents.SpeechStarted, () => {
-            handleInterruption('VAD');
+        sttStream.addListener(LiveTranscriptionEvents.Error, (err: any) => {
+            console.error('[Sharyx] ❌ STT Stream Error:', err);
+            // Don't crash, just log and optionally notify UI
+            transport.sendMessage?.('transcript', {
+                payload: { role: 'agent', text: 'Connection issue detected. Reconnecting...', final: true }
+            });
         });
 
         sttStream.addListener(LiveTranscriptionEvents.Transcript, async (data: any) => {
@@ -122,16 +130,44 @@ export class VoiceOrchestrator extends BaseOrchestrator {
             }
 
             if (!data.is_final) {
-                // Responsive Interruption: Interrupt on partial transcript if it meets word threshold
+                // Forward partial transcript to UI
+                transport.sendMessage?.('transcript', {
+                    payload: { role: 'user', text: transcript, final: false }
+                });
+
+                // VAD INDICATOR: Inform UI that user is actively speaking
+                transport.sendMessage?.('status_update', { payload: { status: 'User Speaking', type: 'vad' } });
+
+                // Responsive Interruption: Be extremely careful with partials
                 const words = transcript.split(' ').length;
-                if (words >= (session.config.interruption_threshold || 1)) {
-                    handleInterruption(`PartialTranscript`, transcript);
+                const confidence = data.channel?.alternatives?.[0]?.confidence || 1.0;
+                
+                if (session.isAiSpeaking) {
+                    if (words >= (session.config.interruption_threshold + 2) && confidence > 0.4) {
+                        handleInterruption(`PartialTranscript`, transcript);
+                    } else if (session.config.debug && words > 1) {
+                        console.log(`[Barge-in Logic] Ignored partial: "${transcript}" (words: ${words} < 5 OR conf: ${confidence.toFixed(2)} <= 0.4)`);
+                    }
                 }
                 return;
             }
-            
-            // Final Interruption
-            handleInterruption('FinalTranscript', transcript);
+
+            // Final Interruption: Require the threshold (3 words) and decent confidence
+            const finalWords = transcript.split(' ').length;
+            const finalConfidence = data.channel?.alternatives?.[0]?.confidence || 1.0;
+
+            if (session.isAiSpeaking) {
+                if (finalWords >= session.config.interruption_threshold && finalConfidence > 0.3) {
+                    handleInterruption('FinalTranscript', transcript);
+                } else if (session.config.debug) {
+                    console.log(`[Barge-in Logic] Ignored final: "${transcript}" (words: ${finalWords} < 3 OR conf: ${finalConfidence.toFixed(2)} <= 0.3)`);
+                }
+            }
+
+            // Forward final transcript to UI
+            transport.sendMessage?.('transcript', {
+                payload: { role: 'user', text: transcript, final: true }
+            });
 
             // Debounce & Lock
             if (session.lastProcessedTranscript === transcript && !session.processingTurn) return;
@@ -139,12 +175,39 @@ export class VoiceOrchestrator extends BaseOrchestrator {
 
             session.lastProcessedTranscript = transcript;
             session.history.push({ role: 'user', content: transcript });
-            
+
             session.processingTurn = true;
             session.turnStartTime = performance.now();
             console.log(`[Sharyx] 🔊 Starting Turn ${session.currentTurnId + 1}. AI Status: SPEAKING`);
             session.isAiSpeaking = true;
-            
+            transport.sendMessage?.('status_update', { payload: { status: 'Thinking', type: 'pipeline' } });
+
+            try {
+                await this.handleResponse(session, transport);
+            } finally {
+                session.processingTurn = false;
+                transport.sendMessage?.('status_update', { payload: { status: 'Idle', type: 'pipeline' } });
+            }
+        });
+
+        // TEXT CHAT INTEGRATION: Handle typed messages from UI
+        transport.on('text', async (data: { text: string }) => {
+            const text = data.text?.trim();
+            if (!text || !this.isRunning) return;
+
+            console.log(`[Sharyx] ⌨️ Text Input Received: "${text}"`);
+
+            // 1. Interrupt AI if speaking
+            handleInterruption('TextChat', text);
+
+            // 2. Lock & Process
+            if (session.processingTurn) return; // Prevent double-processing
+
+            session.history.push({ role: 'user', content: text });
+            session.processingTurn = true;
+            session.turnStartTime = performance.now();
+            session.isAiSpeaking = true;
+
             try {
                 await this.handleResponse(session, transport);
             } finally {
@@ -156,6 +219,12 @@ export class VoiceOrchestrator extends BaseOrchestrator {
         if (this.config.firstMessage) {
             session.history.push({ role: 'assistant', content: this.config.firstMessage });
             console.log('[Sharyx] 🔊 Starting initial greeting...');
+
+            // Forward greeting to UI
+            transport.sendMessage?.('transcript', {
+                payload: { role: 'agent', text: this.config.firstMessage, final: true }
+            });
+
             session.isAiSpeaking = true;
             try {
                 transport.sendStart();
@@ -170,6 +239,25 @@ export class VoiceOrchestrator extends BaseOrchestrator {
             this.stop();
             sttStream.finish();
             if (session.liveTts) session.liveTts.close();
+
+            // Final metrics check
+            this.sendMetrics(session, transport);
+        });
+    }
+
+    private sendMetrics(session: any, transport: VoiceTransport) {
+        const duration = ((performance.now() - session.sessionStartTime) / 1000).toFixed(1);
+        const avgLatency = session.latencies.length > 0
+            ? (session.latencies.reduce((a: any, b: any) => a + b, 0) / session.latencies.length).toFixed(0)
+            : 0;
+
+        transport.sendMessage?.('metrics', {
+            payload: {
+                durationSec: parseFloat(duration),
+                avgLatencyMs: parseInt(avgLatency as string),
+                interruptCount: session.totalBargeIns,
+                turnCount: session.currentTurnId
+            }
         });
     }
 
@@ -180,34 +268,39 @@ export class VoiceOrchestrator extends BaseOrchestrator {
     private async handleResponse(session: any, transport: VoiceTransport) {
         const turnId = ++session.currentTurnId;
         const ttsContextId = `ctx_${session.id}_${turnId}`;
-        
+
         session.activeTtsContextId = ttsContextId;
         session.firstAudioTime = 0;
-        session.firstTokenTime = 0; 
-        
+        session.firstTokenTime = 0;
+
         let fullText = '';
         const liveTts = session.liveTts;
 
         transport.sendStart();
         const stream = this.config.llm.streamChat(session.history, { tools: this.config.tools });
         session.isAiSpeaking = true;
-        
+
         let firstTokenTime = 0;
         let ttsSentFirst = false;
         let ttsBuffer = '';
 
         for await (const chunk of stream) {
             if (turnId !== session.currentTurnId) break;
-            
+
             if (chunk.text) {
                 if (firstTokenTime === 0) {
                     firstTokenTime = performance.now();
-                    session.firstTokenTime = firstTokenTime; 
+                    session.firstTokenTime = firstTokenTime;
                     const ttft = (firstTokenTime - session.turnStartTime).toFixed(0);
+                    session.latencies.push(parseInt(ttft));
                     console.log(`[Latency] 🧠 Turn ${turnId} -> LLM (Transcript to First Token): ${ttft}ms`);
+
+                    // STATUS: Agent is now speaking
+                    transport.sendMessage?.('status_update', { payload: { status: 'Speaking', type: 'pipeline' } });
                 }
 
                 fullText += chunk.text;
+                session.currentTurnLatency = (firstTokenTime - session.turnStartTime).toFixed(0);
 
                 if (liveTts) {
                     // OPTIMIZATION: Buffer first few tokens to give TTS enough context to start fast/stable
@@ -229,7 +322,7 @@ export class VoiceOrchestrator extends BaseOrchestrator {
                     liveTts.sendText(ttsBuffer, false, ttsContextId);
                 }
                 liveTts.sendText('', true, ttsContextId);
-                
+
                 // Wait for synthesis to fully complete or hit safety timeout
                 const completionPromise = new Promise<void>((resolve) => {
                     session.completionResolvers.set(ttsContextId, resolve);
@@ -245,7 +338,21 @@ export class VoiceOrchestrator extends BaseOrchestrator {
             } else {
                 session.isAiSpeaking = false;
             }
-            if (fullText) session.history.push({ role: 'assistant', content: fullText });
+            if (fullText) {
+                session.history.push({ role: 'assistant', content: fullText });
+
+                transport.sendMessage?.('transcript', {
+                    payload: {
+                        role: 'agent',
+                        text: fullText,
+                        final: true,
+                        latency: session.currentTurnLatency
+                    }
+                });
+
+                // Update metrics after each turn
+                this.sendMetrics(session, transport);
+            }
         }
     }
 
@@ -254,11 +361,18 @@ export class VoiceOrchestrator extends BaseOrchestrator {
             sampleRate: session.metadata?.sampleRate,
             encoding: session.metadata?.encoding
         });
-        for await (const chunk of audioChunks) {
-            if (session.isAiSpeaking) {
-                if (session.aiSpeechStartTime === 0) session.aiSpeechStartTime = performance.now();
-                transport.sendAudio(chunk);
+        try {
+            for await (const chunk of audioChunks) {
+                if (session.isAiSpeaking) {
+                    if (session.aiSpeechStartTime === 0) session.aiSpeechStartTime = performance.now();
+                    transport.sendAudio(chunk);
+                }
             }
+        } catch (err) {
+            console.error('[Sharyx] ❌ Speak Error (TTS Service):', err);
+            transport.sendMessage?.('status_update', {
+                payload: { status: 'TTS Error: Voice service unreachable', type: 'error' }
+            });
         }
     }
 }
