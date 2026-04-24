@@ -1,11 +1,32 @@
 import 'dotenv/config';
 import express from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
-import { createAgent, WebCallAdapter } from 'sharyx-os';
+import { createAgent, WebCallAdapter } from '../../src';
 import path from 'path';
+import { createClient } from 'redis';
 
 const app = express();
 const port = process.env.PORT || 3000;
+
+// --- REDIS STORAGE ---
+const redisClient = createClient({
+  url: process.env.REDIS_URL || 'redis://localhost:6379'
+});
+
+redisClient.on('error', (err) => console.error('❌ Redis Client Error', err));
+
+const connectRedis = async () => {
+  try {
+    await redisClient.connect();
+    console.log('✅ Connected to Redis');
+  } catch (err) {
+    console.error('❌ Failed to connect to Redis', err);
+  }
+};
+connectRedis();
+
+const generateId = (prefix: string) => `${prefix}_${Math.random().toString(36).substr(2, 6)}`;
+// ----------------------
 
 // 1. Initialize Sharyx Agent
 const agent = createAgent({
@@ -40,10 +61,71 @@ const server = app.listen(port, () => {
 const wss = new WebSocketServer({ server });
 
 wss.on('connection', (ws: WebSocket) => {
-  console.log('🔌 New WebCall connection established');
+  const sessionId = generateId('sid');
+  const userId = generateId('user');
+
+  console.log(`🔌 New WebCall session: ${sessionId} (User: ${userId})`);
+
+  // Send IDs to the client immediately
+  ws.send(JSON.stringify({
+    event: 'session_info',
+    payload: { sessionId, userId }
+  }));
+
+  // Track state to capture the final transcript and metrics
+  let finalTranscript = '';
+  let finalMetrics = {};
+
+  // Intercept INBOUND messages (from user)
+  ws.on('message', (data: any) => {
+    try {
+      const msg = JSON.parse(data.toString());
+      if (msg.event === 'text') {
+        finalTranscript += `\nUser (Text): ${msg.payload}`;
+      }
+    } catch (e) { }
+  });
+
+  // Intercept OUTBOUND messages (to client)
+  const originalSend = ws.send.bind(ws);
+  ws.send = (data: any) => {
+    try {
+      const msg = JSON.parse(data.toString());
+      if (msg.event === 'transcript' && msg.payload.final) {
+        const role = msg.payload.role === 'agent' ? 'Assistant' : 'User';
+        finalTranscript += `\n${role}: ${msg.payload.text}`;
+      } else if (msg.event === 'metrics') {
+        finalMetrics = msg.payload;
+      }
+    } catch (e) { }
+    return originalSend(data);
+  };
+
   webcall.handleWebSocket(ws);
 
-  ws.on('close', () => {
-    console.log('🔌 WebCall disconnected');
+  ws.on('close', async () => {
+    console.log(`🔌 Session ${sessionId} ended. Saving to Redis...`);
+
+    const sessionData = {
+      sessionId,
+      userId,
+      timestamp: new Date().toISOString(),
+      transcript: finalTranscript.trim() || 'No conversation recorded.',
+      metrics: finalMetrics
+    };
+
+    try {
+      // Store individual session data
+      await redisClient.set(`sharyx:webcall:${sessionId}`, JSON.stringify(sessionData));
+
+      // Add to the set of all session IDs
+      await redisClient.sAdd('sharyx:webcall_sessions', sessionId);
+
+      console.log('--- SAVED SESSION TO REDIS ---');
+      console.log(sessionData);
+      console.log('-------------------------------');
+    } catch (err) {
+      console.error('❌ Failed to save session to Redis', err);
+    }
   });
 });

@@ -4,6 +4,7 @@ import path from 'path';
 import * as fs from 'fs';
 import { WebSocketServer } from 'ws';
 import { createAgent, TelephonyService, TelephonyControllers } from 'sharyx-os';
+import { createClient } from 'redis';
 
 // File-based logging to capture everything
 const logFile = path.join(__dirname, 'server_debug.log');
@@ -23,6 +24,24 @@ console.error = (...args: any[]) => {
 };
 
 console.log('--- Server Starting Debug Session (Refactored) ---');
+
+// --- REDIS STORAGE ---
+const redisClient = createClient({
+  url: process.env.REDIS_URL || 'redis://localhost:6379'
+});
+
+redisClient.on('error', (err) => console.error('❌ Redis Client Error', err));
+
+const connectRedis = async () => {
+    try {
+        await redisClient.connect();
+        console.log('✅ Connected to Redis');
+    } catch (err) {
+        console.error('❌ Failed to connect to Redis', err);
+    }
+};
+connectRedis();
+// ----------------------
 
 const app = express();
 const port = process.env.PORT || 8080;
@@ -131,6 +150,7 @@ wss.on('connection', (ws, req) => {
         
         if (path === (process.env.TWILIO_MEDIA_STREAM_PATH || '/media-stream')) {
             console.log('🤖 Routing to TwilioAdapter');
+            setupWebSocketStorage(ws);
             twilio.handleWebSocket(ws);
         } else if (path.startsWith('/plivo-stream')) {
             // Verify Shared Secret
@@ -142,12 +162,57 @@ wss.on('connection', (ws, req) => {
                 }
             }
             console.log('🤖 Routing to PlivoAdapter');
+            setupWebSocketStorage(ws);
             plivo.handleWebSocket(ws);
         }
     } catch (err: any) {
         console.error('❌ Error handling connection:', err.message);
     }
 });
+
+/**
+ * Helper to intercept WebSocket messages and save session data to Redis
+ */
+function setupWebSocketStorage(ws: any) {
+    const sessionId = `tel_${Math.random().toString(36).substr(2, 9)}`;
+    const userId = 'telephony_user';
+    let finalMetrics: any = {};
+
+    const originalSend = ws.send.bind(ws);
+    ws.send = (data: any) => {
+        try {
+            const msg = JSON.parse(data.toString());
+            if (msg.event === 'metrics') {
+                finalMetrics = msg.payload;
+            }
+        } catch (e) {}
+        return originalSend(data);
+    };
+
+    ws.on('close', async () => {
+        console.log(`🔌 Telephony Session ${sessionId} ended. Saving to Redis...`);
+        
+        const sessionData = {
+            sessionId: finalMetrics.sessionId || sessionId,
+            userId: finalMetrics.userId || userId,
+            durationSec: finalMetrics.durationSec || 0,
+            avgLatencyMs: finalMetrics.avgLatencyMs || 0,
+            turnCount: finalMetrics.turnCount || 0,
+            timestamp: new Date().toISOString(),
+            metrics: finalMetrics
+        };
+
+        try {
+            await redisClient.set(`sharyx:telephony:${sessionData.sessionId}`, JSON.stringify(sessionData));
+            await redisClient.sAdd('sharyx:telephony_sessions', sessionData.sessionId);
+            console.log('--- SAVED TELEPHONY SESSION TO REDIS ---');
+            console.log(sessionData);
+            console.log('-----------------------------------------');
+        } catch (err) {
+            console.error('❌ Failed to save telephony session to Redis', err);
+        }
+    });
+}
 
 server.on('upgrade', (request, socket, head) => {
     wss.handleUpgrade(request, socket, head, (ws) => {
