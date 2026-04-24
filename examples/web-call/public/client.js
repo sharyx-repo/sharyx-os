@@ -289,20 +289,8 @@ function stopCall() {
     // Capture technical snapshot BEFORE resetting UI
     const technicalSpecs = getTechnicalSnapshot();
 
-    // --- SAVE TO LOCAL STORAGE ---
-    if (currentSessionId && sessionHistory.length > 0) {
-        const history = JSON.parse(localStorage.getItem('sharyx_history') || '[]');
-        history.push({
-            sessionId: currentSessionId,
-            userId: currentUserId,
-            transcript: sessionHistory,
-            metrics: sessionMetrics,
-            technicalSpecs: technicalSpecs,
-            timestamp: new Date().toISOString()
-        });
-        localStorage.setItem('sharyx_history', JSON.stringify(history));
-        console.log('📦 Session saved to browser memory:', currentSessionId);
-    }
+    // --- LOCAL STORAGE REMOVED ---
+    console.log('📦 Session ended:', currentSessionId);
 
 function getTechnicalSnapshot() {
     return {
@@ -343,15 +331,7 @@ function getTechnicalSnapshot() {
 }
 
 function updateLastSessionWithMetrics(metrics) {
-    const history = JSON.parse(localStorage.getItem('sharyx_history') || '[]');
-    if (history.length > 0) {
-        const lastSession = history[history.length - 1];
-        if (lastSession.sessionId === currentSessionId) {
-            lastSession.metrics = metrics;
-            localStorage.setItem('sharyx_history', JSON.stringify(history));
-            console.log('📊 Metrics updated for session:', currentSessionId);
-        }
-    }
+    // Local storage persistence removed. Metrics are handled by the backend Redis store.
 }
 
 let lastMessageElement = null;
