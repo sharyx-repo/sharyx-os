@@ -3,9 +3,12 @@ import { SimpleAgentConfig, VoiceAgentConfig } from './types';
 import { DEFAULT_CONFIG } from './defaults';
 import { OpenAILLM } from '../llm/openai';
 import { GeminiLLM } from '../llm/gemini';
+import { AnthropicLLM } from '../llm/anthropic';
+import { GroqLLM } from '../llm/groq';
 import { DeepgramSTT } from '../stt/deepgram';
 import { ElevenLabsTTS } from '../tts/elevenlabs';
 import { CartesiaTTS } from '../tts/cartesia';
+import { GoogleCloudTTS } from '../tts/google';
 import { MockLLM } from '../llm/mock-llm';
 import { MockSTT } from '../stt/mock-stt';
 import { MockTTS } from '../tts/mock-tts';
@@ -47,18 +50,24 @@ function resolveProviders(config: SimpleAgentConfig) {
     // LLM Resolution: config.apiKey > config.llm.apiKey > process.env.OPENAI_API_KEY
     let llm: LlmProvider;
     
-    const apiKey = config.apiKey || (config.llm as any)?.apiKey || process.env.OPENAI_API_KEY;
+    const llmOptions = config.llm as { apiKey?: string; provider?: string; model?: string };
+    const apiKey = config.apiKey || llmOptions?.apiKey || process.env.OPENAI_API_KEY;
+    const model = llmOptions?.model || config.model;
 
     if (config.llm && typeof (config.llm as any).chat === 'function') {
         llm = config.llm as LlmProvider;
     } else if (apiKey) {
-        const provider = (config.llm as any)?.provider || 'openai';
+        const provider = llmOptions?.provider || 'openai';
         if (provider === 'openai') {
-            llm = new OpenAILLM({ apiKey, model: config.model || 'gpt-4o-mini' });
+            llm = new OpenAILLM({ apiKey, model: model || 'gpt-4o-mini' });
         } else if (provider === 'gemini') {
-            llm = new GeminiLLM({ apiKey, model: config.model });
+            llm = new GeminiLLM({ apiKey, model: model });
+        } else if (provider === 'anthropic') {
+            llm = new AnthropicLLM({ apiKey, model: model || 'claude-3-5-sonnet-20241022' });
+        } else if (provider === 'groq') {
+            llm = new GroqLLM({ apiKey, model: model || 'llama-3.3-70b-versatile' });
         } else {
-            llm = new OpenAILLM({ apiKey, model: config.model || 'gpt-4o-mini' });
+            llm = new OpenAILLM({ apiKey, model: model || 'gpt-4o-mini' });
         }
     } else {
         // Zero-config: No key found anywhere
@@ -95,6 +104,8 @@ function resolveProviders(config: SimpleAgentConfig) {
             tts = new CartesiaTTS({ apiKey: ttsApiKey, voiceId: config.voice });
         } else if (provider === 'elevenlabs' && ttsApiKey) {
             tts = new ElevenLabsTTS({ apiKey: ttsApiKey, voiceId: config.voice });
+        } else if (provider === 'googlecloud') {
+            tts = new GoogleCloudTTS({ apiKey: ttsApiKey, voiceId: config.voice });
         } else if (process.env.CARTESIA_API_KEY) {
             tts = new CartesiaTTS({ apiKey: process.env.CARTESIA_API_KEY, voiceId: config.voice });
         } else if (ttsApiKey || process.env.ELEVENLABS_API_KEY) {

@@ -30,7 +30,11 @@ const generateId = (prefix: string) => `${prefix}_${Math.random().toString(36).s
 
 // 1. Initialize Sharyx Agent
 const agent = createAgent({
-  apiKey: process.env.OPENAI_API_KEY,
+  llm: { 
+    provider: 'groq', 
+    apiKey: process.env.GROQ_API_KEY!, 
+    model: 'llama-3.3-70b-versatile' 
+  },
   stt: { apiKey: process.env.DEEPGRAM_API_KEY!, provider: 'deepgram' },
   tts: { apiKey: process.env.CARTESIA_API_KEY!, provider: 'cartesia' },
   systemPrompt: `You are Sharyx Web Assistant, a clear and concise guide for Sharyx SDK developers.

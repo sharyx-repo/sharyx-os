@@ -94,8 +94,8 @@ export interface SimpleAgentConfig {
     language?: string;            // Default: 'en'
     tools?: any[];
     stt?: SttProvider | { apiKey: string; provider?: 'deepgram' | 'sarvam' };
-    llm?: LlmProvider | { apiKey: string; provider?: 'openai' | 'gemini' };
-    tts?: TtsProvider | { apiKey: string; provider?: 'elevenlabs' | 'cartesia' };
+    llm?: LlmProvider | { apiKey: string; provider?: 'openai' | 'gemini' | 'anthropic' | 'groq'; model?: string };
+    tts?: TtsProvider | { apiKey: string; provider?: 'elevenlabs' | 'cartesia' | 'googlecloud' };
     config?: Partial<SessionConfig>;
 }
 
