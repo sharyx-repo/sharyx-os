@@ -46,7 +46,7 @@ connectRedis();
 const app = express();
 const port = process.env.PORT || 8080;
 
-app.use(express.static('public'));
+app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
 // 1. Initialize Telephony Service
