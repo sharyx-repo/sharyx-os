@@ -68,6 +68,47 @@ graph LR
 
 ---
 
+## 🛠️ Setup & Installation
+
+### 1. Clone the Project
+```bash
+git clone https://github.com/sharyx-repo/sharyx-os.git
+cd sharyx-os
+```
+
+### 2. Install Dependencies
+You need to install dependencies for the specific example you want to run:
+
+**For Telephony (Twilio/Plivo):**
+```bash
+cd examples/telephony
+npm install
+```
+
+**For Web-Call (Browser Streaming):**
+```bash
+cd examples/web-call
+npm install
+```
+
+### 3. Configure Environment Variables
+Each example folder contains a `.env.example` file.
+1. Rename it to `.env`.
+2. Add your API keys (Deepgram, Groq/OpenAI, Cartesia, etc.).
+
+### 4. Run the Application
+```bash
+npm run start
+```
+
+> [!TIP]
+> **If the call disconnects immediately:**
+> - Ensure **ngrok** is running and configured correctly.
+> - The application port (e.g., 3000) must match the port you are tunneling with ngrok.
+> - Verify your webhook URLs in Twilio/Plivo match your ngrok domain.
+
+---
+
 ## 🗺️ Roadmap & Community
 
 We are building the future of voice-first interfaces. Want to help?
