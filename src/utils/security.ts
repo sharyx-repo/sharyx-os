@@ -31,8 +31,12 @@ export function verifyTwilioSignature(
         .digest('base64');
 
     // 4. Constant-time comparison to prevent timing attacks
-    return crypto.timingSafeEqual(
-        Buffer.from(signature, 'utf-8'),
-        Buffer.from(expectedSignature, 'utf-8')
-    );
+    const sigBuffer = Buffer.from(signature, 'utf-8');
+    const expectedBuffer = Buffer.from(expectedSignature, 'utf-8');
+
+    if (sigBuffer.length !== expectedBuffer.length) {
+        return false;
+    }
+
+    return crypto.timingSafeEqual(sigBuffer, expectedBuffer);
 }
