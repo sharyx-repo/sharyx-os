@@ -6,6 +6,8 @@
 // Core exports
 export { ConversationFSM } from './fsm';
 export { VoicePipeline } from './pipeline';
+export { VoiceAgent } from './core/voice-agent';
+export { createAgent } from './core/simple';
 
 // Types
 export * from './types';
@@ -19,9 +21,12 @@ export { InMemoryStore } from './memory/InMemoryStore';
 export { validateTwilioSignature, twilioValidator } from './security/webhookValidator';
 export { inputSanitizer } from './security/inputSanitizer';
 
-// Transports
+// Transports & Adapters
 export { TwilioTransport } from './transports/TwilioTransport';
 export { WebRTCTransport } from './transports/WebRTCTransport';
+export { WebCallAdapter } from './adapters/webcall';
+export { TwilioAdapter } from './adapters/twilio';
+export { PlivoAdapter } from './adapters/plivo';
 
 // Helper factories
 import { VoicePipeline } from './pipeline';
