@@ -9,9 +9,9 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
-      "types": "./dist/index.d.ts"
+      "require": "./dist/index.js"
     }
   },
   "repository": {
@@ -54,7 +54,9 @@
     "ioredis": ">=5.0.0",
     "openai": ">=4.0.0",
     "plivo": ">=4.0.0",
-    "twilio": ">=4.0.0"
+    "twilio": ">=4.0.0",
+    "googleapis": ">=100.0.0",
+    "@hubspot/api-client": ">=11.0.0"
   },
   "peerDependenciesMeta": {
     "@deepgram/sdk": {
@@ -77,9 +79,16 @@
     },
     "plivo": {
       "optional": true
+    },
+    "googleapis": {
+      "optional": true
+    },
+    "@hubspot/api-client": {
+      "optional": true
     }
   },
   "devDependencies": {
+    "@hubspot/api-client": "^11.0.0",
     "@types/express": "^4.17.21",
     "@types/node": "^20.8.2",
     "@types/ws": "^8.5.10",
@@ -87,7 +96,9 @@
     "@typescript-eslint/parser": "^6.7.4",
     "eslint": "^8.50.0",
     "express": "^4.18.2",
+    "googleapis": "^126.0.0",
     "ioredis": "^5.10.1",
+    "openai": "^4.104.0",
     "tsup": "^8.0.1",
     "typescript": "^5.2.2",
     "vitest": "^1.4.0"

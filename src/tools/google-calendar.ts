@@ -36,7 +36,7 @@ export const googleCalendarTools: SimpleTool[] = [
       const events = response.data.items || [];
       return {
         available: events.length === 0,
-        conflicts: events.map(e => ({ summary: e.summary, start: e.start, end: e.end }))
+        conflicts: events.map((e: any) => ({ summary: e.summary, start: e.start, end: e.end }))
       };
     }
   },
