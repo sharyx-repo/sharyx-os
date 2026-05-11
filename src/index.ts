@@ -1,70 +1,67 @@
 /**
- * Sharyx Voice Agent SDK
- * Build AI voice agents in 5 lines of code.
+ * Sharyx OS - Professional Voice AI Framework
+ * @module sharyx-os
  */
 
-// === TIER 1: Simple API (what 90% of people use) ===
-export { createAgent } from './core/simple';
+// Core exports
+export { ConversationFSM } from './fsm';
+export { VoicePipeline } from './pipeline';
 
-// === TIER 2: Advanced API (power users) ===
-export { VoiceAgent } from './core/voice-agent';
-export { VoiceOrchestrator } from './providers/orchestrator/voice-orchestrator';
-export { TelephonyService, TelephonyControllers } from './core/telephony-system';
+// Types
+export * from './types';
 
-// === Built-in Providers (no extra installs) ===
-export { DeepgramSTT } from './stt/deepgram';
-export { OpenAILLM } from './llm/openai';
-export { GeminiLLM } from './llm/gemini';
-export { ElevenLabsTTS } from './tts/elevenlabs';
-export { CartesiaTTS } from './tts/cartesia';
+// Memory
+export { IMemoryStore } from './memory/IMemoryStore';
+export { RedisMemoryStore } from './memory/RedisMemoryStore';
+export { InMemoryStore } from './memory/InMemoryStore';
 
-// === Telephony Adapters ===
-export { TwilioAdapter } from './adapters/twilio';
-export { PlivoAdapter } from './adapters/plivo';
-export { WebCallAdapter } from './adapters/webcall';
-export { TelephonyManager } from './adapters/telephony-manager';
+// Security
+export { validateTwilioSignature, twilioValidator } from './security/webhookValidator';
+export { inputSanitizer } from './security/inputSanitizer';
 
-// === Agent Brain & Workflows ===
-export { IntentDetector } from './providers/orchestrator/intent-detector';
+// Transports
+export { TwilioTransport } from './transports/TwilioTransport';
+export { WebRTCTransport } from './transports/WebRTCTransport';
 
-// === Business Tools & Integrations ===
-export { googleCalendarTools } from './tools/google-calendar';
-export { hubspotTools } from './tools/hubspot-crm';
+// Helper factories
+import { VoicePipeline } from './pipeline';
+import { AgentConfig, ITransport } from './types';
+import { TwilioTransport } from './transports/TwilioTransport';
+import { WebRTCTransport } from './transports/WebRTCTransport';
+import type { WebSocket } from 'ws';
 
-// === Notification Channels ===
-export { WhatsAppChannel } from './channels/whatsapp-channel';
+/**
+ * Factory to create a voice pipeline for a given transport
+ */
+export function createVoiceAgent(config: AgentConfig, transport: ITransport): VoicePipeline {
+  return new VoicePipeline(config, transport);
+}
 
-// === Observability & Telemetry ===
-export { EvalLogger } from './utils/eval-logger';
-export { SharyxTelemetry } from './utils/telemetry';
-export type { TelemetryProvider, MetricEvent, ErrorEvent } from './interfaces/telemetry';
+/**
+ * Framework-agnostic handler creation
+ */
+export const handlers = {
+  twilio: (config: AgentConfig) => {
+    return (ws: WebSocket) => {
+      const transport = new TwilioTransport(ws);
+      const agent = new VoicePipeline(config, transport);
+      agent.start().catch(console.error);
+      
+      ws.on('close', () => {
+        agent.stop().catch(console.error);
+      });
+    };
+  },
 
-// === Mocks (for testing) ===
-export { MockLLM } from './llm/mock-llm';
-export { MockSTT } from './stt/mock-stt';
-export { MockTTS } from './tts/mock-tts';
+  web: (config: AgentConfig) => {
+    return (ws: WebSocket) => {
+      const transport = new WebRTCTransport(ws);
+      const agent = new VoicePipeline(config, transport);
+      agent.start().catch(console.error);
 
-// === Memory & Persistence ===
-export { InMemoryMemoryStore } from './memory/memory-store';
-export { RedisMemoryStore } from './memory/redis-store';
-
-// === Interfaces (for writing custom providers) ===
-export type { SttProvider, LiveSttConnection, SttOptions } from './interfaces/stt';
-export type { LlmProvider, ChatMessage, LlmChunk, LlmOptions } from './interfaces/llm';
-export type { TtsProvider, TtsOptions } from './interfaces/tts';
-export type { TelephonyAdapter } from './interfaces/adapter';
-export type { VoiceTransport, CallMetadata } from './interfaces/transport';
-export type { MemoryStore, CallSession, MemoryMessage } from './interfaces/memory';
-
-// === Types ===
-export type {
-  SimpleAgentConfig,
-  VoiceAgentConfig,
-  SessionConfig,
-  SimulateResult,
-} from './core/types';
-
-export type {
-  SimpleTool,
-  ToolParam
-} from './tools/types';
+      ws.on('close', () => {
+        agent.stop().catch(console.error);
+      });
+    };
+  }
+};
