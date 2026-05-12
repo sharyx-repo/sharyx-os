@@ -97,6 +97,8 @@ async function startCall() {
         const data = JSON.parse(message.data);
         if (data.event === 'audio') {
             playAudio(data.payload);
+        } else if (data.event === 'clear' || data.type === 'clear') {
+            stopAudio();
         } else if (data.event === 'session_info') {
             currentSessionId = data.payload.sessionId;
             currentUserId = data.payload.userId;
@@ -264,7 +266,8 @@ function playAudio(base64) {
     if (bytes.length === 0) return;
 
     // Decode Int16 PCM to Float32
-    const int16Array = new Int16Array(bytes.buffer);
+    // IMPORTANT: Specify byteOffset and length because bytes might be a sliced view
+    const int16Array = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.length / 2);
     const float32Array = new Float32Array(int16Array.length);
     for (let i = 0; i < int16Array.length; i++) {
         float32Array[i] = int16Array[i] / 32768.0;
@@ -287,6 +290,17 @@ function playAudio(base64) {
     source.onended = () => {
         playingSources = playingSources.filter(s => s !== source);
     };
+}
+function stopAudio() {
+    console.log('🛑 Stopping all audio playback');
+    playingSources.forEach(source => {
+        try {
+            source.stop();
+        } catch (e) {}
+    });
+    playingSources = [];
+    nextPlayTime = 0;
+    audioLeftover = null;
 }
 
 function stopCall() {

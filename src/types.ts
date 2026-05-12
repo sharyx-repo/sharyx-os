@@ -102,6 +102,11 @@ export interface ITransport {
    * Event for when user starts speaking (barge-in)
    */
   onBargeIn?(callback: () => void): void;
+
+  /**
+   * Signal client to stop playing currently buffered audio
+   */
+  clearAudio?(): void;
 }
 
 /**

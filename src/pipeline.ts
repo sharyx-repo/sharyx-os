@@ -45,6 +45,11 @@ export class VoicePipeline {
           console.info(`[Pipeline] Final transcript: "${text}"`);
           await this.handleUserUtterance(text);
         } else {
+          // INTERRUPT ON SPEECH: If we're talking and user starts speaking, stop immediately
+          if (this.fsm.getState() === 'SPEAKING' || this.fsm.getState() === 'THINKING') {
+            console.info('[Pipeline] Speech detected! Interrupting...');
+            await this.interrupt();
+          }
           this.fsm.transition('TRANSCRIBING');
         }
       });
@@ -54,13 +59,33 @@ export class VoicePipeline {
       if (this.config.firstMessage) {
         console.info(`[Pipeline] Speaking first message: "${this.config.firstMessage}"`);
         await this.speak(this.config.firstMessage);
-        this.fsm.transition('LISTENING');
+        if (this.fsm.getState() === 'SPEAKING') {
+          this.fsm.transition('LISTENING');
+        }
       }
 
     } catch (error) {
       console.error('[Pipeline] Start failed', error);
       throw error;
     }
+  }
+
+  /**
+   * Internal interrupt logic to stop current AI activity
+   */
+  private async interrupt(): Promise<void> {
+    // 1. Cancel TTS
+    await this.config.tts.interrupt();
+
+    // 2. Clear Transport/Client Audio
+    if (this.transport.clearAudio) {
+      this.transport.clearAudio();
+    }
+    
+    // 3. Clear Queue
+    this.speechQueue = [];
+    this.isSpeaking = false;
+    this.isProcessing = false;
   }
 
   /**
@@ -79,14 +104,33 @@ export class VoicePipeline {
   /**
    * Handle user input with sanitization and LLM streaming
    */
+  private speechQueue: string[] = [];
+  private isSpeaking: boolean = false;
+
+  private sessionCounter: number = 0;
+
+  /**
+   * Handle user input with sanitization and LLM streaming
+   */
   private async handleUserUtterance(text: string): Promise<void> {
-    if (this.isProcessing) return;
+    // If we're already doing something, interrupt it first
+    if (this.isProcessing) {
+      console.info('[Pipeline] Interrupted by new final utterance');
+      await this.interrupt();
+    }
+    
     this.isProcessing = true;
     
-    try {
-      this.fsm.transition('THINKING');
+    // Each utterance starts a new session to handle interruptions
+    this.sessionCounter++;
+    const currentSession = this.sessionCounter;
 
-      // ISSUE 6: Input Sanitization
+    try {
+      // If we interrupted, we are already in TRANSCRIBING or LISTENING
+      if (this.fsm.getState() !== 'TRANSCRIBING') {
+        this.fsm.transition('THINKING');
+      }
+
       const sanitizedText = inputSanitizer(text);
       
       await this.config.memory.appendMessage(this.conversationId, {
@@ -100,37 +144,69 @@ export class VoicePipeline {
         ...history
       ];
 
-      // ISSUE 2: Sentence-boundary streaming
       let currentSentence = '';
-      const sentenceBoundaries = /[.!?\n]+/;
+      const sentenceBoundaries = /[.!?\n]/;
 
       for await (const chunk of this.config.llm.generate(messages)) {
+        // If session changed (interrupted), stop this loop immediately
+        if (this.sessionCounter !== currentSession) {
+          console.debug('[Pipeline] Session changed, stopping LLM loop');
+          return;
+        }
+
         currentSentence += chunk;
 
         if (sentenceBoundaries.test(currentSentence)) {
-          const parts = currentSentence.split(sentenceBoundaries);
-          // The last part might be an incomplete sentence
-          const readyToSpeak = parts.slice(0, -1).join(' ').trim();
-          currentSentence = parts[parts.length - 1];
-
-          if (readyToSpeak) {
-            await this.speak(readyToSpeak);
+          const lastChar = currentSentence.charAt(currentSentence.length - 1);
+          if (/[.!?\n]/.test(lastChar)) {
+            const sentence = currentSentence.trim();
+            if (sentence.length > 0) {
+              this.enqueueSpeech(sentence);
+              currentSentence = '';
+            }
           }
         }
       }
 
-      // Handle any remaining text
       if (currentSentence.trim()) {
-        await this.speak(currentSentence.trim());
+        this.enqueueSpeech(currentSentence.trim());
       }
-
-      this.fsm.transition('LISTENING');
     } catch (error) {
       console.error('[Pipeline] Error handling utterance', error);
-      this.fsm.transition('LISTENING');
-    } finally {
       this.isProcessing = false;
+      this.fsm.transition('LISTENING');
     }
+  }
+
+  private enqueueSpeech(text: string): void {
+    this.speechQueue.push(text);
+    this.processSpeechQueue();
+  }
+
+  private async processSpeechQueue(): Promise<void> {
+    if (this.isSpeaking || this.speechQueue.length === 0) {
+      if (this.speechQueue.length === 0 && !this.isSpeaking) {
+        this.isProcessing = false;
+        if (this.fsm.getState() !== 'LISTENING') {
+          this.fsm.transition('LISTENING');
+        }
+      }
+      return;
+    }
+
+    this.isSpeaking = true;
+    const text = this.speechQueue.shift();
+
+    if (text) {
+      try {
+        await this.speak(text);
+      } catch (error) {
+        console.error('[Pipeline] Speech error:', error);
+      }
+    }
+
+    this.isSpeaking = false;
+    this.processSpeechQueue();
   }
 
   /**
@@ -140,7 +216,6 @@ export class VoicePipeline {
     this.fsm.transition('SPEAKING');
     
     await this.config.tts.synthesize(text, (frame) => {
-      // If user interrupted while synthesizing, this should be caught by barge-in
       if (this.fsm.getState() === 'SPEAKING') {
         this.transport.sendAudio(frame.data);
       }
@@ -154,13 +229,9 @@ export class VoicePipeline {
     if (this.transport.onBargeIn) {
       this.transport.onBargeIn(async () => {
         if (this.fsm.getState() === 'SPEAKING' || this.fsm.getState() === 'THINKING') {
-          console.info('[Pipeline] Barge-in detected! Interrupting...');
-          
-          // 1. Cancel TTS
-          await this.config.tts.interrupt();
-          
-          // 2. Reset state
-          this.isProcessing = false;
+          console.info('[Pipeline] Barge-in detected via transport! Interrupting...');
+          this.sessionCounter++; // Invalidate current session
+          await this.interrupt();
           this.fsm.transition('LISTENING');
         }
       });

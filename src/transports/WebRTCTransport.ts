@@ -37,7 +37,6 @@ export class WebRTCTransport extends EventEmitter implements ITransport {
 
   public sendAudio(audio: Buffer): void {
     if (this.ws.readyState === WebSocket.OPEN) {
-      console.debug(`[Transport] Sending audio: ${audio.length} bytes`);
       // Send as JSON for the web example
       this.ws.send(JSON.stringify({
         event: 'audio',
@@ -54,5 +53,11 @@ export class WebRTCTransport extends EventEmitter implements ITransport {
 
   public onBargeIn(callback: () => void): void {
     this.on('barge-in', callback);
+  }
+
+  public clearAudio(): void {
+    if (this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ event: 'clear' }));
+    }
   }
 }
