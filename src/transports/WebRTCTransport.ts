@@ -15,18 +15,19 @@ export class WebRTCTransport extends EventEmitter implements ITransport {
 
   public async start(onAudio: (audio: Buffer) => void): Promise<void> {
     this.ws.on('message', (data: any) => {
-      // In WebRTC/Web environment, we often send binary frames directly
-      if (Buffer.isBuffer(data)) {
-        onAudio(data);
-      } else {
-        // Handle JSON control messages if any
-        try {
-          const msg = JSON.parse(data.toString());
-          if (msg.type === 'barge-in') {
-            this.emit('barge-in');
-          }
-        } catch (e) {
-          // ignore
+      try {
+        const msg = JSON.parse(data.toString());
+        
+        if (msg.event === 'audio' && msg.payload) {
+          const buffer = Buffer.from(msg.payload, 'base64');
+          onAudio(buffer);
+        } else if (msg.type === 'barge-in' || msg.event === 'barge-in') {
+          this.emit('barge-in');
+        }
+      } catch (e) {
+        // If not JSON, check if it's raw binary
+        if (Buffer.isBuffer(data)) {
+          onAudio(data);
         }
       }
     });
@@ -36,7 +37,12 @@ export class WebRTCTransport extends EventEmitter implements ITransport {
 
   public sendAudio(audio: Buffer): void {
     if (this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(audio);
+      console.debug(`[Transport] Sending audio: ${audio.length} bytes`);
+      // Send as JSON for the web example
+      this.ws.send(JSON.stringify({
+        event: 'audio',
+        payload: audio.toString('base64')
+      }));
     }
   }
 

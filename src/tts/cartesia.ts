@@ -1,148 +1,87 @@
-import { TtsProvider, TtsOptions, LiveTtsConnection } from '../interfaces/tts';
+import { ITTSProvider, AudioFrame } from '../types';
 import { EventEmitter } from 'events';
 
 /**
- * Cartesia TTS Provider.
- * Supports both REST-based speech generation and Real-time WebSocket streaming.
+ * Cartesia TTS Provider implementation
  */
-export class CartesiaTTS implements TtsProvider {
-  constructor(private config: { apiKey: string, voiceId?: string }) {}
+export class CartesiaTTS implements ITTSProvider {
+  private ws: any;
+  private isReady: boolean = false;
+  private emitter = new EventEmitter();
 
-  createLiveConnection(options?: TtsOptions): LiveTtsConnection {
-    const emitter = new EventEmitter();
-    const voiceId = options?.voiceId || this.config.voiceId || '694f9389-aac1-45b6-b726-9d9369183238';
-    const sampleRate = options?.sampleRate || 16000;
-    
-    // Cartesia WS URL
+  constructor(private config: { apiKey: string; voiceId?: string; modelId?: string }) {}
+
+  private async getWS(): Promise<any> {
+    if (this.ws && this.ws.readyState === 1) return this.ws;
+
     const wsUrl = `wss://api.cartesia.ai/tts/websocket?api_key=${this.config.apiKey}&cartesia_version=2024-06-10`;
-    
     // @ts-ignore
-    const WebSocket = require('ws');
-    const ws = new WebSocket(wsUrl);
+    const { WebSocket } = await import('ws');
+    this.ws = new WebSocket(wsUrl);
 
-    let isReady = false;
+    return new Promise((resolve) => {
+      this.ws.on('open', () => {
+        this.isReady = true;
+        resolve(this.ws);
+      });
 
-    ws.on('open', () => {
-        isReady = true;
-        console.log('[CartesiaTTS] ✅ WebSocket connection opened');
-    });
-
-    ws.on('message', (data: any) => {
+      this.ws.on('message', (data: any) => {
         try {
-            const msg = JSON.parse(data.toString());
-            
-            if (msg.type === 'chunk') {
-                // Audio data is base64 encoded in 'data' field
-                const audioBuffer = Buffer.from(msg.data, 'base64');
-                emitter.emit('audio', audioBuffer, msg.context_id);
-            } else if (msg.type === 'error') {
-                console.error('[CartesiaTTS] WS Error:', msg.error);
-            } else if (msg.type === 'done') {
-                emitter.emit('completion', msg.context_id);
-            }
-        } catch (err) {
-            // If parsing fails, it might be raw binary (though Sony usually sends JSON)
-            if (Buffer.isBuffer(data)) {
-                emitter.emit('audio', data);
-            }
-        }
+          const msg = JSON.parse(data.toString());
+          if (msg.type === 'chunk') {
+            const audioBuffer = Buffer.from(msg.data, 'base64');
+            this.emitter.emit('audio', audioBuffer);
+          } else if (msg.type === 'done') {
+            this.emitter.emit('done');
+          }
+        } catch (e) {}
+      });
     });
-
-    ws.on('error', (err: any) => {
-        console.error('[CartesiaTTS] WS Transport Error:', err);
-    });
-
-    ws.on('close', () => {
-        console.log('[CartesiaTTS] ✅ WebSocket connection closed');
-    });
-
-    return {
-        sendText: (text: string, isFinal: boolean, contextId?: string) => {
-            if (ws.readyState === 1) {
-                ws.send(JSON.stringify({
-                    type: 'generation',
-                    context_id: contextId || 'default',
-                    model_id: options?.model || 'sonic-english',
-                    transcript: text,
-                    continue: !isFinal,
-                    voice: {
-                        mode: 'id',
-                        id: voiceId
-                    },
-                    output_format: {
-                        container: 'raw',
-                        encoding: 'pcm_s16le',
-                        sample_rate: sampleRate
-                    }
-                }));
-            }
-        },
-        onAudio: (callback: (chunk: Buffer, contextId?: string) => void) => {
-            emitter.on('audio', (chunk, ctx) => callback(chunk, ctx));
-        },
-        onCompletion: (callback: (contextId?: string) => void) => {
-            emitter.on('completion', callback);
-        },
-        onError: (callback: (err: any) => void) => {
-            emitter.on('error', callback);
-        },
-        close: () => {
-            if (ws.readyState === 1 || ws.readyState === 0) {
-                ws.close();
-            }
-        }
-    };
   }
 
-  async *streamSpeech(text: string, options?: TtsOptions): AsyncIterable<Buffer> {
-    const voiceId = options?.voiceId || this.config.voiceId || '694f9389-aac1-45b6-b726-9d9369183238';
-    const sampleRate = options?.sampleRate || 16000;
+  public async synthesize(text: string, onAudio: (frame: AudioFrame) => void): Promise<void> {
+    console.info(`[Cartesia] 🎙️ Synthesizing: "${text}"`);
+    const ws = await this.getWS();
     
-    try {
-        const response = await fetch('https://api.cartesia.ai/tts/bytes', {
-            method: 'POST',
-            headers: {
-                'X-API-Key': this.config.apiKey,
-                'Cartesia-Version': '2024-06-10',
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                model_id: options?.model || 'sonic-english',
-                transcript: text,
-                voice: {
-                    mode: 'id',
-                    id: voiceId
-                },
-                output_format: {
-                    container: 'raw',
-                    encoding: 'pcm_s16le',
-                    sample_rate: sampleRate
-                }
-            })
-        });
+    const handler = (data: Buffer) => {
+      onAudio({ data, timestamp: Date.now() });
+    };
+    
+    this.emitter.on('audio', handler);
 
-        if (!response.ok || !response.body) {
-            const errorBody = await response.text();
-            throw new Error(`Cartesia HTTP error: ${response.status} - ${errorBody}`);
-        }
+    ws.send(JSON.stringify({
+      type: 'generation',
+      model_id: this.config.modelId || 'sonic-english',
+      transcript: text,
+      voice: {
+        mode: 'id',
+        id: this.config.voiceId || '694f9389-aac1-45b6-b726-9d9369183238'
+      },
+      output_format: {
+        container: 'raw',
+        encoding: 'pcm_s16le',
+        sample_rate: 16000
+      }
+    }));
 
-        const reader = response.body.getReader();
-        try {
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                if (value) yield Buffer.from(value);
-            }
-        } finally {
-            reader.releaseLock();
-        }
-    } catch (err: any) {
-        if (err.name === 'AbortError') {
-            console.log('[CartesiaTTS] Stream aborted');
-        } else {
-            console.error('[CartesiaTTS] ❌ Stream Error:', err.message);
-            throw err; // Re-throw to be caught by Orchestrator
-        }
+    // Wait for the 'done' message from Cartesia
+    await new Promise<void>(resolve => {
+      const timeout = setTimeout(resolve, 5000); // Safety timeout
+      this.emitter.once('done', () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+    });
+
+    this.emitter.off('audio', handler);
+  }
+
+  public async interrupt(): Promise<void> {
+    this.emitter.removeAllListeners('audio');
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+      this.isReady = false;
     }
   }
 }

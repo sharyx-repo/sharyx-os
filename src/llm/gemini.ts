@@ -1,9 +1,9 @@
-import { LlmProvider, ChatMessage, LlmChunk, LlmOptions } from '../interfaces/llm';
+import { ILLMProvider, Message } from '../types';
 
 /**
  * Google Gemini LLM Provider.
  */
-export class GeminiLLM implements LlmProvider {
+export class GeminiLLM implements ILLMProvider {
   private sdk: any;
 
   constructor(private config: { apiKey: string, model?: string }) {}
@@ -21,7 +21,7 @@ export class GeminiLLM implements LlmProvider {
     return this.sdk;
   }
 
-  async *streamChat(messages: ChatMessage[], options?: LlmOptions): AsyncIterable<LlmChunk> {
+  public async *generate(messages: Message[], options?: any): AsyncIterable<string> {
     const genAI = await this.getSDK();
     const modelName = options?.model || this.config.model || 'gemini-1.5-flash';
     const model = genAI.getGenerativeModel({ model: modelName });
@@ -46,35 +46,8 @@ export class GeminiLLM implements LlmProvider {
     for await (const chunk of result.stream) {
       const text = chunk.text();
       if (text) {
-        yield { text };
+        yield text;
       }
     }
-  }
-
-  async chat(messages: ChatMessage[], options?: LlmOptions): Promise<{ text: string, toolCalls?: any[] }> {
-    const genAI = await this.getSDK();
-    const modelName = options?.model || this.config.model || 'gemini-1.5-flash';
-    const model = genAI.getGenerativeModel({ model: modelName });
-
-    const systemInstruction = messages.find(m => m.role === 'system')?.content;
-    const chatHistory = messages
-      .filter(m => m.role !== 'system')
-      .map(m => ({
-        role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: m.content || '' }]
-      }));
-
-    const chat = model.startChat({
-      history: chatHistory.slice(0, -1),
-      systemInstruction: systemInstruction ? { role: 'system', parts: [{ text: systemInstruction }] } : undefined
-    });
-
-    const lastMessage = chatHistory[chatHistory.length - 1]?.parts[0]?.text || '';
-    const result = await chat.sendMessage(lastMessage);
-    const response = await result.response;
-
-    return {
-      text: response.text()
-    };
   }
 }

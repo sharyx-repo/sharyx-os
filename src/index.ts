@@ -28,6 +28,13 @@ export { WebCallAdapter } from './adapters/webcall';
 export { TwilioAdapter } from './adapters/twilio';
 export { PlivoAdapter } from './adapters/plivo';
 
+// Providers
+export { DeepgramSTT } from './stt/deepgram';
+export { OpenAILLM } from './llm/openai';
+export { GeminiLLM } from './llm/gemini';
+export { CartesiaTTS } from './tts/cartesia';
+export { ElevenLabsTTS } from './tts/elevenlabs';
+
 // Helper factories
 import { VoicePipeline } from './pipeline';
 import { AgentConfig, ITransport } from './types';

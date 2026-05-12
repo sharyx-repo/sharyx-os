@@ -32,19 +32,30 @@ export class VoicePipeline {
   public async start(): Promise<void> {
     try {
       this.fsm.transition('LISTENING');
-      
+
+      // 1. Start the transport first so the WebSocket is wired up
+      await this.transport.start((audio) => {
+        this.config.stt.sendAudio(audio);
+      });
+      console.info('[Pipeline] ✅ Transport started');
+
+      // 2. Start STT (connect to Deepgram)
       await this.config.stt.start(async (text, isFinal) => {
         if (isFinal) {
-          console.info(`[Pipeline] Transcript: ${text}`);
+          console.info(`[Pipeline] Final transcript: "${text}"`);
           await this.handleUserUtterance(text);
         } else {
           this.fsm.transition('TRANSCRIBING');
         }
       });
+      console.info('[Pipeline] ✅ STT started');
 
-      await this.transport.start((audio) => {
-        this.config.stt.sendAudio(audio);
-      });
+      // 3. Speak first message if provided
+      if (this.config.firstMessage) {
+        console.info(`[Pipeline] Speaking first message: "${this.config.firstMessage}"`);
+        await this.speak(this.config.firstMessage);
+        this.fsm.transition('LISTENING');
+      }
 
     } catch (error) {
       console.error('[Pipeline] Start failed', error);
@@ -56,8 +67,12 @@ export class VoicePipeline {
    * Stop all components and cleanup
    */
   public async stop(): Promise<void> {
-    await this.config.stt.stop();
-    await this.transport.stop();
+    try {
+      await this.config.stt.stop();
+    } catch (e) { /* ignore */ }
+    try {
+      await this.transport.stop();
+    } catch (e) { /* ignore */ }
     this.fsm.transition('IDLE');
   }
 
@@ -144,9 +159,7 @@ export class VoicePipeline {
           // 1. Cancel TTS
           await this.config.tts.interrupt();
           
-          // 2. Clear buffers (handled by transport/tts usually)
-          
-          // 3. Reset state
+          // 2. Reset state
           this.isProcessing = false;
           this.fsm.transition('LISTENING');
         }

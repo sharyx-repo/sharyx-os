@@ -13,7 +13,7 @@
     "express": "^4.18.2",
     "openai": "^6.33.0",
     "redis": "^5.12.1",
-    "sharyx-os": "^1.0.0",
+    "sharyx-os": "../../src",
     "ws": "^8.14.2"
   },
   "devDependencies": {

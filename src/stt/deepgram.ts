@@ -1,115 +1,100 @@
-import { SttProvider, LiveSttConnection, SttOptions, LiveTranscriptionEvents } from '../interfaces/stt';
-import { EventEmitter } from 'events';
+import { ISTTProvider } from '../types';
 
 /**
- * Deepgram STT Provider.
- * Updated for @deepgram/sdk v5.0.0 which uses:
- *   - DeepgramClient({ apiKey }) constructor
- *   - listen.v1.connect() returns a socket (startClosed=true)
- *   - socket.connect() + socket.waitForOpen() to actually open the WS
- *   - socket.sendMedia() to send audio
- *   - socket.close() to finish
- *   - socket.readyState property (not getReadyState())
- *   - 'message' event for all incoming data (not 'results')
+ * Deepgram STT Provider implementation (v5 SDK)
+ * 
+ * The v5 SDK lifecycle is:
+ *   1. deepgram.listen.v1.connect(options)  — creates the socket (closed)
+ *   2. socket.on('open' | 'message' | ...)  — register handlers
+ *   3. socket.connect()                     — actually opens the WebSocket
+ *   4. socket.waitForOpen()                 — resolves once the WS is open
+ *   5. socket.sendMedia(buffer)             — send audio
+ *   6. socket.close()                       — tear down
  */
-export class DeepgramSTT implements SttProvider {
-    private sdk: any;
+export class DeepgramSTT implements ISTTProvider {
+  private sdk: any;
+  private connection: any;
+  private isReady: boolean = false;
 
-    constructor(private config: { apiKey: string }) { }
+  constructor(private config: { apiKey: string, model?: string }) {}
 
-    private async getSDK() {
-        if (!this.sdk) {
-            try {
-                // @ts-ignore
-                const { DeepgramClient } = await import('@deepgram/sdk');
-                this.sdk = new DeepgramClient({ apiKey: this.config.apiKey });
-            } catch (err) {
-                throw new Error('Deepgram SDK not found or failed to initialize. Install it with: npm install @deepgram/sdk');
-            }
+  private async getSDK() {
+    if (!this.sdk) {
+      try {
+        const { DeepgramClient } = await import('@deepgram/sdk');
+        this.sdk = new DeepgramClient({ apiKey: this.config.apiKey });
+      } catch (err) {
+        throw new Error('Deepgram SDK not found. Install it with: npm install @deepgram/sdk');
+      }
+    }
+    return this.sdk;
+  }
+
+  public async start(onTranscript: (text: string, isFinal: boolean) => void): Promise<void> {
+    const deepgram = await this.getSDK();
+
+    console.info('[Deepgram] Creating live connection...');
+
+    // Step 1: Create the socket (starts closed)
+    this.connection = await deepgram.listen.v1.connect({
+      model: this.config.model || 'nova-2',
+      smart_format: true,
+      interim_results: true,
+      encoding: 'linear16',
+      sample_rate: 16000,
+      endpointing: 200,
+    });
+
+    // Step 2: Register event handlers BEFORE opening
+    this.connection.on('open', () => {
+      this.isReady = true;
+      console.info('[Deepgram] ✅ WebSocket OPEN — ready to receive audio');
+    });
+
+    this.connection.on('message', (data: any) => {
+      if (data?.type === 'Results') {
+        const transcript = data.channel?.alternatives?.[0]?.transcript;
+        if (transcript && transcript.trim() !== '') {
+          console.info(`[Deepgram] Transcript (is_final=${data.is_final}): "${transcript}"`);
+          onTranscript(transcript, data.is_final);
         }
-        return this.sdk;
+      }
+    });
+
+    this.connection.on('error', (err: any) => {
+      console.error('[Deepgram] ❌ Error:', err);
+    });
+
+    this.connection.on('close', () => {
+      console.info('[Deepgram] 🔌 Connection closed');
+      this.isReady = false;
+    });
+
+    // Step 3: Actually open the WebSocket connection
+    this.connection.connect();
+
+    // Step 4: Wait for the socket to be open (with timeout)
+    await Promise.race([
+      this.connection.waitForOpen(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Deepgram connection timeout (10s)')), 10000)
+      ),
+    ]);
+
+    console.info('[Deepgram] ✅ Ready for audio');
+  }
+
+  public sendAudio(audio: Buffer): void {
+    if (this.isReady && this.connection) {
+      this.connection.sendMedia(audio);
     }
+  }
 
-    createLiveConnection(options?: SttOptions): LiveSttConnection {
-        const emitter = new EventEmitter();
-        let connection: any;
-        let isReady = false;
-
-        const initConnection = async () => {
-            try {
-                const deepgram = await this.getSDK();
-                console.log('[DeepgramSTT] Creating live connection...');
-
-                connection = await deepgram.listen.v1.connect({
-                    model: options?.model || 'nova-2',
-                    language: options?.language || 'en-US',
-                    encoding: (options?.encoding === 'mulaw' || options?.encoding === 'pcm_mulaw') ? 'mulaw' : 'linear16',
-                    sample_rate: options?.sampleRate || 16000,
-                    smart_format: true,
-                    interim_results: true,
-                    endpointing: 200
-                });
-
-                // Register event handlers BEFORE connecting
-                connection.on('open', () => {
-                    console.log('[DeepgramSTT] ✅ WebSocket OPEN - ready to receive audio');
-                    isReady = true;
-                });
-
-                // v5 SDK uses 'message' event for all incoming messages
-                connection.on('message', (data: any) => {
-                    // data could be a transcript result or other message
-                    if (data?.type === 'Results') {
-                        const transcript = data.channel?.alternatives?.[0]?.transcript;
-                        if (transcript && transcript.trim() !== '') {
-                            console.log(`[DeepgramSTT] Transcript (is_final=${data.is_final}): "${transcript}"`);
-                            emitter.emit(LiveTranscriptionEvents.Transcript, data);
-                        }
-                    } else if (data?.type === 'SpeechStarted') {
-                        emitter.emit(LiveTranscriptionEvents.SpeechStarted);
-                    }
-                });
-
-                connection.on('error', (err: any) => {
-                    console.error('[DeepgramSTT] ❌ Error:', err);
-                    emitter.emit(LiveTranscriptionEvents.Error, err);
-                });
-
-                connection.on('close', () => {
-                    console.log('[DeepgramSTT] WebSocket closed');
-                    isReady = false;
-                    emitter.emit(LiveTranscriptionEvents.Close);
-                });
-
-                // NOW actually open the WebSocket connection
-                console.log('[DeepgramSTT] Calling connect()...');
-                connection.connect();
-
-                // Wait for the socket to be open
-                await connection.waitForOpen();
-                console.log('[DeepgramSTT] ✅ Connection established and ready!');
-
-            } catch (err) {
-                console.error('[DeepgramSTT] ❌ Failed to initialize connection:', err);
-            }
-        };
-
-        initConnection();
-
-        return {
-            send: (audio: Buffer) => {
-                if (isReady && connection) {
-                    connection.sendMedia(audio);
-                }
-            },
-            finish: () => {
-                if (connection) {
-                    isReady = false;
-                    connection.close();
-                }
-            },
-            getReadyState: () => isReady ? 1 : 0,
-            addListener: (event: string, callback: (...args: any[]) => void) => emitter.addListener(event, callback)
-        } as any;
+  public async stop(): Promise<void> {
+    if (this.connection) {
+      this.isReady = false;
+      this.connection.close();
+      this.connection = null;
     }
+  }
 }

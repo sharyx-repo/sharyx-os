@@ -5,8 +5,8 @@ import { ConversationState } from './types';
  */
 const VALID_TRANSITIONS: Record<ConversationState, ConversationState[]> = {
   IDLE: ['LISTENING'],
-  LISTENING: ['TRANSCRIBING', 'IDLE'],
-  TRANSCRIBING: ['THINKING', 'LISTENING', 'IDLE'],
+  LISTENING: ['TRANSCRIBING', 'THINKING', 'SPEAKING', 'IDLE'],
+  TRANSCRIBING: ['THINKING', 'LISTENING', 'SPEAKING', 'IDLE'],
   THINKING: ['SPEAKING', 'LISTENING', 'IDLE'],
   SPEAKING: ['LISTENING', 'IDLE'],
 };

@@ -236,13 +236,32 @@ async function setupMicrophone() {
     }
 }
 
+let audioLeftover = null;
+
 function playAudio(base64) {
     if (!audioContext) return;
 
     const binary = atob(base64);
     const len = binary.length;
-    const bytes = new Uint8Array(len);
+    let bytes = new Uint8Array(len);
     for (let i = 0; i < len; i++) { bytes[i] = binary.charCodeAt(i); }
+
+    // Handle leftover bytes from previous chunk
+    if (audioLeftover !== null) {
+        const newBytes = new Uint8Array(bytes.length + 1);
+        newBytes[0] = audioLeftover;
+        newBytes.set(bytes, 1);
+        bytes = newBytes;
+        audioLeftover = null;
+    }
+
+    // If we have an odd number of bytes, save the last one for the next chunk
+    if (bytes.length % 2 !== 0) {
+        audioLeftover = bytes[bytes.length - 1];
+        bytes = bytes.slice(0, bytes.length - 1);
+    }
+
+    if (bytes.length === 0) return;
 
     // Decode Int16 PCM to Float32
     const int16Array = new Int16Array(bytes.buffer);

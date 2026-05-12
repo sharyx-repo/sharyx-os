@@ -113,6 +113,7 @@ export interface AgentConfig {
   tts: ITTSProvider;
   memory: IMemoryStore;
   systemPrompt: string;
+  firstMessage?: string;
   tools?: unknown[];
   maxToolDepth?: number;
   maxToolTimeout?: number;
